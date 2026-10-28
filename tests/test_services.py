@@ -57,7 +57,7 @@ class ServiceTests(unittest.TestCase):
         args = self.outputs()
         real_save = storage.save_unique
         def save(data, name, *, folder):
-            if folder == self.hmi: raise OSError('simulated full disk')
+            if folder.samefile(self.hmi): raise OSError('simulated full disk')
             return real_save(data, name, folder=folder)
         with patch.object(storage, 'save_unique', side_effect=save), self.assertRaises(OSError):
             storage.save_report_pair(*args, record_date=TODAY.isoformat())
