@@ -227,7 +227,7 @@ function renderWarnings(warnings) {
   for (const text of warnings) { const p = document.createElement('p'); p.textContent = text; $('warnings').append(p); }
 }
 function renderInspect(data) {
-  renderExisting(data.existing);
+  state.existing=data.existing || null;
   $('record-date').textContent = data.record_date.replaceAll('-', '. ');
   $('record-subtitle').textContent = '운영 기록일 · ' + data.output_name;
   $('carry-body').replaceChildren();
@@ -243,7 +243,7 @@ function renderInspect(data) {
   $('file-status').classList.add('ok'); renderWarnings(data.warnings); updateButtons();
 }
 function clearInspect() {
-  renderExisting(null);
+  state.existing=null;
   state.inspected = null;
   state.draftReady = false;
   $('record-date').textContent = '자료 확인 중'; $('record-subtitle').textContent = '운영 기록 날짜를 확인해 주세요.';
@@ -285,7 +285,7 @@ function renderMetrics(data) {
   renderWarnings(data.warnings);
 }
 function renderOutputs(data) {
-  renderExisting(data.existing);
+  state.existing=data.existing || null;
   const outputs = data.outputs || [];
   $('success').querySelector('h3').textContent = '일지 2개가 완성됐습니다.';
   $('saved-name').textContent = `${data.record_date} 운영 기록`;
@@ -307,15 +307,6 @@ function existingLinks(target, outputs) {
     link.textContent=`${output.kind==='hmi' ? 'HMI' : '최종 일지'} · ${output.name}`;
     li.append(link); target.append(li);
   }
-}
-function renderExisting(existing) {
-  state.existing=existing;
-  const outputs=existing?.outputs || [];
-  $('existing-report').hidden=!outputs.length;
-  const reports=outputs.filter(output=>output.kind==='report').length;
-  const hmis=outputs.filter(output=>output.kind==='hmi').length;
-  $('existing-summary').textContent=`이미 작성된 일지 · 최종 ${reports}개 / HMI ${hmis}개`;
-  existingLinks($('existing-files'),outputs);
 }
 async function confirmRewrite(existing) {
   if (!existing?.outputs?.length) return '';
@@ -367,7 +358,7 @@ $('preview-button').addEventListener('click', async () => {
   if (state.busy || state.stopped) return;
   if (!state.inspected || countInputs() !== inputCells.length) { $('report-form').reportValidity(); return; }
   const rev = ++state.revision; state.busy = true; updateButtons(); $('preview-button').textContent = '계산 중…';
-  try { const data = await api('/api/preview', payload(true)); if (rev !== state.revision) return; state.preview = data; renderMetrics(data); renderExisting(data.existing); }
+  try { const data = await api('/api/preview', payload(true)); if (rev !== state.revision) return; state.preview = data; renderMetrics(data); state.existing=data.existing || null; }
   catch (e) { state.preview = null; showError(e.message); }
   finally { state.busy = false; $('preview-button').textContent = '계산 확인'; updateButtons(); }
 });
@@ -384,7 +375,7 @@ $('report-form').addEventListener('submit', async e => {
     if (rev !== state.revision) return;
     const warningsReviewed = state.preview?.source_token === preview.source_token && JSON.stringify(state.preview?.metrics) === JSON.stringify(preview.metrics);
     state.preview = preview; renderMetrics(preview);
-    renderExisting(preview.existing);
+    state.existing=preview.existing || null;
     // A negative computed total needs review before files are written.
     if (preview.warnings.length && !warningsReviewed) { showError('계산 결과에 음수가 있습니다. 값을 확인한 뒤 생성 버튼을 다시 눌러 주세요.'); return; }
     const rewriteToken=await confirmRewrite(preview.existing);
@@ -393,7 +384,7 @@ $('report-form').addEventListener('submit', async e => {
     if (rev !== state.revision) return;
     renderOutputs(data); renderMetrics(data);
     await loadFiles(); $('success').scrollIntoView({ behavior:'smooth',block:'nearest' });
-  } catch (e) { if (e.data?.code==='duplicate_report') renderExisting(e.data.existing); showError(e.message); }
+  } catch (e) { if (e.data?.code==='duplicate_report') state.existing=e.data.existing || null; showError(e.message); }
   finally { controls.forEach(c => c.disabled = false); $('previous-select').disabled = true; state.busy = false; $('generate-button').textContent = '일지 생성 →'; updateButtons(); }
 });
 function dayWorkers() { return Array.from(document.querySelectorAll('#day-worker-fields input')).map(i => i.value.trim()).filter(Boolean); }
