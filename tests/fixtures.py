@@ -15,10 +15,11 @@ def pe_bytes():
     return bytes(data)
 
 
-def make_report(date, previous=False):
+def make_report(date, previous=False, overrides=None):
     values = {"C32": 3 if previous else 5, "D32": 3 if previous else 5,
               "F32": 3 if previous else 4, "C42": 100 if previous else 110,
               "F42": 1000 if previous else 1100, "D20": 77}
+    values.update(overrides or {})
     rows = []
     for row in range(1, 61):
         cells = ''.join(f'<c r="{column}{row}"><v>{values.get(column+str(row),1)}</v></c>' for column in 'ABCDEFGHIJKLMNOPQ')
@@ -34,6 +35,16 @@ def make_report(date, previous=False):
     out=io.BytesIO()
     with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for name,data in files.items():archive.writestr(name,data.encode())
+    return out.getvalue()
+
+
+def replace_parts(data, replacements):
+    """Build a synthetic variant without changing any on-disk workbook."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED) as dest:
+        for entry in source.infolist():
+            content = replacements.get(entry.filename, source.read(entry.filename))
+            dest.writestr(entry, content)
     return out.getvalue()
 
 

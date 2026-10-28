@@ -13,9 +13,9 @@ import drafts
 import report_files
 import report_storage as storage
 import transactions
-from report import generate_with_values
-from hmi import render_hmi
-from fixtures import TODAY, INPUTS, make_report
+from report import Book, generate_with_values, patch_cell
+from hmi import HMI_SHEET, render_hmi
+from fixtures import TODAY, INPUTS, make_report, replace_parts
 
 
 class ServiceTests(unittest.TestCase):
@@ -66,6 +66,34 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(list(self.final.iterdir()), [self.final / '20261026.xlsx'])
         self.assertEqual((self.final / '20261026.xlsx').read_bytes(), self.previous)
         self.assertFalse(list(self.hmi.iterdir()))
+
+    def test_discovery_skips_corrupt_cells_and_uses_internal_dates_at_boundaries(self):
+        template = (ROOT / '송도_HMI.xlsx').read_bytes()
+        hmi_book = Book(template, 'template.xlsx', require_report=False)
+        hmi_path = hmi_book.sheets[HMI_SHEET]
+        hmi_xml = hmi_book.zip.read(hmi_path).decode()
+        for index, date in enumerate((dt.date(2027, 1, 1), dt.date(2028, 3, 1))):
+            with self.subTest(date=date):
+                raw = self.raw / f'renamed-raw-{index}.xlsx'
+                previous = self.final / f'renamed-final-{index}.xlsx'
+                raw.write_bytes(make_report(date))
+                previous.write_bytes(make_report(date - dt.timedelta(days=1), True))
+                damaged = make_report(date, overrides={'B32': 'bad-number'})
+                (self.raw / f'damaged-{index}.xlsx').write_bytes(damaged)
+                files = report_files.catalog()
+                pair = report_files.auto_pair(files)
+                self.assertEqual(pair['raw_id'], 'raw/' + raw.name)
+                self.assertEqual(pair['previous_id'], 'final/' + previous.name)
+                self.assertNotIn(f'raw/damaged-{index}.xlsx', [file['id'] for file in files])
+                yesterday = date - dt.timedelta(days=1)
+                previous_hmi = self.hmi / f'renamed-hmi-{index}.xlsx'
+                xml = patch_cell(hmi_xml, 'B8', yesterday.strftime('근무 일지(%Y.%m.%d)'))
+                previous_hmi.write_bytes(replace_parts(template, {hmi_path: xml}))
+                # A newer mtime cannot make an older record date eligible.
+                wrong = patch_cell(hmi_xml, 'B8', (date - dt.timedelta(days=2)).strftime('근무 일지(%Y.%m.%d)'))
+                (self.hmi / 'wrong-date-newer-file.xlsx').write_bytes(replace_parts(template, {hmi_path: wrong}))
+                selected, _ = report_files.previous_hmi(date)
+                self.assertEqual(selected, previous_hmi)
 
     def test_concurrent_generation_and_rewrite_allow_only_one_pair_each(self):
         args = self.outputs()

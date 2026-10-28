@@ -98,10 +98,16 @@ class Book:
             self.date = self.record_date() if require_report else None
         except ReportError:
             raise
-        except (zipfile.BadZipFile, KeyError, ET.ParseError, IndexError, TypeError):
+        except (zipfile.BadZipFile, KeyError, ET.ParseError, IndexError, TypeError, AttributeError, ValueError):
             raise ReportError(f"{name}: 읽을 수 없는 XLSX 파일입니다.") from None
 
     def cell(self, address, sheet="운영일지"):
+        try:
+            return self._cell(address, sheet)
+        except (zipfile.BadZipFile, KeyError, ET.ParseError, IndexError, TypeError, ValueError, InvalidOperation):
+            raise ReportError(f"{self.name} / {sheet}!{address}: 엑셀 셀 내용을 읽을 수 없습니다.") from None
+
+    def _cell(self, address, sheet):
         if sheet not in self.cache:
             root = ET.fromstring(self.zip.read(self.sheets[sheet]))
             self.cache[sheet] = {c.get("r"): c for c in root.findall(".//s:sheetData/s:row/s:c", NS)}
@@ -114,7 +120,10 @@ class Book:
         if v is None or v.text is None:
             return None
         if c.get("t") == "s":
-            return self.shared[int(v.text)]
+            index = int(v.text)
+            if index < 0:
+                raise ValueError("Invalid shared string index")
+            return self.shared[index]
         if c.get("t") in ("e", "str", "b"):
             return v.text
         return Decimal(v.text)

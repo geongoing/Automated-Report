@@ -11,12 +11,13 @@
 4. 변경을 커밋해 `main`에 올린 후 **같은 버전의 태그**를 게시합니다.
 
 ```sh
-git tag v2.2.0
-git push origin v2.2.0
+git tag v2.3.0
+git push origin v2.3.0
 ```
 
 태그는 예시입니다. 실제 버전 정보와 정확히 일치해야 합니다.
 GitHub Actions의 **Windows release**가 단위 검증, Windows EXE 빌드, 독립 EXE 검증을 수행합니다.
+단위 검증에는 `node --test tests/test_drafts_ui.js`로 확인하는 브라우저 임시 저장 흐름도 포함합니다.
 모두 통과한 경우에만 초안 Release에 파일을 올린 뒤 정식 버전으로 게시합니다.
 웹의 Actions에서 수동으로 실행할 수도 있지만 같은 버전의 Release가 이미 있으면 실패합니다.
 

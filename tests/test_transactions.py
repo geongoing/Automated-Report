@@ -136,3 +136,46 @@ tx.commit_pair((base/'input-report.xlsx').read_bytes(),Path(sys.argv[3]),(base/'
         self.assertFalse(self.hmi.exists())
         self.assertFalse(tx.recover_pending())
         self.assert_complete()
+
+    def test_error_immediately_after_publication_rolls_back_both_owned_outputs(self):
+        sync = tx.sync_directory
+        def fail_after_publish(folder):
+            if folder == self.hmi.parent and self.hmi.exists():
+                raise OSError('share disconnected immediately after rename')
+            return sync(folder)
+        with patch.object(tx, 'sync_directory', side_effect=fail_after_publish), self.assertRaises(OSError):
+            self.save()
+        self.assertFalse(self.report.exists())
+        self.assertFalse(self.hmi.exists())
+        self.assertFalse(list(tx.PENDING.iterdir()))
+
+    def test_ownership_is_durable_before_rename_and_recovery_resumes(self):
+        operation = 'rename' if os.name == 'nt' else 'link'
+        def abrupt(source, destination):
+            folder = next(tx.PENDING.iterdir())
+            journal = tx.load_journal(folder)
+            owner = next(owner for owner in journal['owned'] if owner['kind'] == 'report')
+            stat = source.stat()
+            self.assertEqual((owner['ino'], owner['dev']), (stat.st_ino, stat.st_dev))
+            raise Interrupted()
+        with patch.object(tx.os, operation, side_effect=abrupt), self.assertRaises(Interrupted):
+            self.save()
+        self.assertFalse(self.report.exists())
+        self.assertFalse(tx.recover_pending())
+        self.assert_complete()
+
+    def test_interrupted_rollback_after_post_rename_failure_keeps_ownership(self):
+        sync = tx.sync_directory
+        def fail_after_publish(folder):
+            if folder == self.report.parent and self.report.exists():
+                raise OSError('publication interrupted')
+            return sync(folder)
+        with patch.object(tx, 'sync_directory', side_effect=fail_after_publish), patch.object(tx, 'rollback', side_effect=Interrupted()), self.assertRaises(Interrupted):
+            self.save()
+        self.assertTrue(self.report.exists())
+        journal = tx.load_journal(next(tx.PENDING.iterdir()))
+        self.assertEqual(journal['state'], 'aborted')
+        self.assertEqual([owner['kind'] for owner in journal['owned']], ['report'])
+        self.assertFalse(tx.recover_pending())
+        self.assertFalse(self.report.exists())
+        self.assertFalse(self.hmi.exists())

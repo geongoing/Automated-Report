@@ -90,16 +90,22 @@ def publish_output(folder, journal, item):
     if is_link(stage):
         raise ValueError("연결된 임시 파일은 수정하지 않습니다.")
     atomic_bytes(stage, data)
-    if stage.stat().st_size != item["size"] or file_digest(stage) != item["sha256"]:
+    stat = stage.stat()
+    if stat.st_size != item["size"] or file_digest(stage) != item["sha256"]:
         raise ValueError("임시 저장 파일의 검증에 실패했습니다.")
+    # Rename/link preserves the staged file's identity. Persist ownership BEFORE
+    # publication, so failures immediately after rename can still roll it back.
+    # A pre-publication crash is harmless: the destination does not yet exist.
+    owner = {"kind": item["kind"], "ino": stat.st_ino, "dev": stat.st_dev}
+    journal["owned"] = [entry for entry in journal.get("owned", []) if entry["kind"] != item["kind"]] + [owner]
+    write_json(folder / "journal.json", journal)
     if os.name == "nt":
         os.rename(stage, destination)  # Windows rename refuses an existing target.
     else:
         os.link(stage, destination)    # POSIX rename would overwrite; link is exclusive.
         stage.unlink()
     sync_directory(destination.parent)
-    stat = destination.stat()
-    return {"kind": item["kind"], "ino": stat.st_ino, "dev": stat.st_dev}
+    return owner
 
 
 def cleanup(folder, journal=None):
@@ -154,9 +160,7 @@ def commit_pair(report_data, report_target, hmi_data, hmi_target, record_date):
                                        "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
         write_json(folder / "journal.json", journal)
         for item in journal["outputs"]:
-            owner = publish_output(folder, journal, item)
-            if owner:
-                journal["owned"].append(owner)
+            publish_output(folder, journal, item)
         journal["state"] = "complete"
         write_json(folder / "journal.json", journal)
     except Exception:

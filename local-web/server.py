@@ -127,8 +127,13 @@ class Handler(BaseHTTPRequestHandler):
             return False
         origin = self.headers.get("Origin")
         if origin:
-            parsed = urllib.parse.urlsplit(origin)
-            return parsed.hostname in ("127.0.0.1", "localhost") and parsed.port == self.server.server_port
+            try:
+                parsed = urllib.parse.urlsplit(origin)
+                return (parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost")
+                        and parsed.port == self.server.server_port and parsed.username is None
+                        and not parsed.path and not parsed.query and not parsed.fragment)
+            except ValueError:
+                return False
         return True
 
     def do_POST(self):

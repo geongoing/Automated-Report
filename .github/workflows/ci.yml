@@ -19,3 +19,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -B -m unittest discover -s tests -p "test_*.py" -v
+      - run: node --test tests/test_drafts_ui.js

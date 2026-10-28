@@ -1,7 +1,7 @@
 # Automated Report
 
 송도지소의 당일 레포트와 전날 최종 일지를 연결해 **최종 일지와 송도 HMI를 함께 생성**하는 Windows용 로컬 웹 프로그램입니다.
-현재 버전은 **v2.2.0**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
+현재 버전은 **v2.3.0**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
 
 배포본은 [최신 정식 버전](https://github.com/geongoing/Automated-Report/releases/latest)에서 받습니다.
 `SongdoDaily-v버전.zip`에는 `일지작성.exe` 하나가 들어 있습니다. 이후 EXE 실행 시 새 정식 버전을 자동 확인합니다.
@@ -60,9 +60,11 @@ py -3 -m venv .venv
 
 ```sh
 python -B -m unittest discover -s tests -p "test_*.py" -v
+node --test tests/test_drafts_ui.js
 ```
 
 테스트 XLSX는 `tests/fixtures.py`가 가상의 값으로 생성합니다. 실제 운영자료를 사용하지 않습니다.
+이월·계산과 전체 HMI 매핑, 월말·연말·윤일의 자료 연결, 게시 직전·직후 중단 복구를 검증합니다. Node 검사는 브라우저 임시 저장의 입력 묶음 처리, 즉시 저장, 종료 전 전송과 실패 후 재시도를 확인합니다.
 Windows 빌드 후 `python -B tests/frozen_smoke.py --exe dist/SongdoDaily.exe`로 독립 EXE, 생성·재작성, 설정 보존 및 실행 실패 복구를 확인합니다.
 배포는 [배포 절차](docs/RELEASING.md)를 따릅니다. 버전 태그를 올리면 GitHub Actions의 Windows 빌드·검증을 거쳐 정식 Release가 게시됩니다.
 

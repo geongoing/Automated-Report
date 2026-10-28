@@ -42,9 +42,9 @@ function queueDraft() {
   pendingDrafts.set(draft.record_date,draft);
   draftStatus('임시 저장 중…');
   clearTimeout(draftTimer); draftTimer=setTimeout(flushDrafts,300);
-  flushDrafts();
 }
 function flushDrafts() {
+  clearTimeout(draftTimer);
   if (draftSaving) return draftSaving;
   if (!pendingDrafts.size) return Promise.resolve();
   draftSaving=(async()=>{
