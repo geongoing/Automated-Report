@@ -57,13 +57,17 @@ def cleanup_versions(root, protected):
     try:
         if is_link(root):
             return removed
-        boundary = root.resolve()
+        boundary = root.absolute()
         for folder in root.iterdir():
             if folder.name in keep or not VERSION_FOLDER.fullmatch(folder.name) or is_link(folder) or not folder.is_dir():
                 continue
             # Check the final absolute directory before any deletion on Windows.
-            resolved = folder.resolve()
-            if resolved.parent != boundary:
+            # A Windows projected folder can resolve outside its logical parent
+            # even though it is not a junction/link. Check the exact direct child
+            # returned by this root and reject links above before deleting only
+            # the allowlisted leaf files (no recursive directory removal).
+            absolute = folder.absolute()
+            if absolute.parent != boundary:
                 continue
             try:
                 files = list(folder.iterdir())

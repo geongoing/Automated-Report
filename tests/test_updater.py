@@ -76,6 +76,14 @@ class UpdaterTests(unittest.TestCase):
             self.assertTrue(u.valid_record(item))
             self.assertFalse(u.valid_record({**item,'path':str(self.root/'foreign.exe')}))
 
+    def test_projected_version_directory_is_also_valid(self):
+        item=self.item();target=Path(item['path']);original=Path.resolve
+        def projected(path,*args,**kwargs):
+            if path==target or path==target.parent:return self.root/'projected'/path.name
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'resolve',projected):
+            self.assertTrue(u.valid_record(item))
+
     def test_current_build_does_not_spawn_an_identical_controller(self):
         own=self.item()
         with patch.object(u,'bundled_record',return_value=own),patch.object(u,'managed_launch',return_value='http://ready') as manage,patch.object(u,'run_record') as run:

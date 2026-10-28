@@ -197,11 +197,12 @@ def record_path(value, sha):
 def valid_record(record):
     try:
         target = record_path(record["version"], record["sha256"])
-        # MSIX can redirect the leaf file while its parent directory keeps its
-        # logical path. Check the known parent boundary and reject file links;
-        # do not require the redirected leaf's resolved string to share a prefix.
+        # MSIX may project either the file or the whole version directory into
+        # LocalCache without creating a link. The expected target is constructed
+        # only from validated version/hash segments. Reject actual filesystem
+        # links at that boundary instead of comparing projected string prefixes.
         if (not same_path(record["path"], target) or is_link(target) or
-                not target.parent.resolve().is_relative_to(VERSIONS.resolve())):
+                is_link(target.parent) or is_link(VERSIONS)):
             return False
         return target.is_file() and target.stat().st_size <= MAX_EXE and digest(target) == record["sha256"]
     except (OSError, ValueError, TypeError, KeyError):

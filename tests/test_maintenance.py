@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'local-web'))
 from maintenance import BoundedLog, cleanup_versions, process_alive
@@ -55,6 +56,18 @@ class MaintenanceTests(unittest.TestCase):
                 self.skipTest('Directory symlinks unavailable for this Windows account')
             cleanup_versions(root, [])
             self.assertEqual(exe.read_bytes(), b'untouched')
+
+    def test_cleanup_handles_windows_projected_directory_names(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)/'versions';root.mkdir()
+            folder=root/'1.0.0-0123456789abcdef';folder.mkdir()
+            (folder/'SongdoDaily.exe').write_bytes(b'old program')
+            original=Path.resolve
+            def projected(path,*args,**kwargs):
+                return Path(temporary)/'projected'/path.name if path==folder else original(path,*args,**kwargs)
+            with patch.object(Path,'resolve',projected):
+                cleanup_versions(root,[])
+            self.assertFalse(folder.exists())
 
     def test_logs_rotate_and_bound_legacy_files_and_large_unicode_writes(self):
         with tempfile.TemporaryDirectory() as temporary:
