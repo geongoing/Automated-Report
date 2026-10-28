@@ -10,16 +10,29 @@ from report import ReportError
 from report_files import file_metadata, hmi_metadata
 from runtime import same_path
 SAVE_LOCK = threading.RLock()
+RECOVERY_ERRORS = {}
 
 
 def output_info(path, kind):
-    return {"kind": kind, "name": path.name, "path": str(path),
+    return {"kind": kind, "name": path.name, "path": str(path), "folder": str(path.parent),
             "download_url": ("/download/hmi/" if kind == "hmi" else "/download/") + urllib.parse.quote(path.name)}
 
 
 def recover_pending():
     with SAVE_LOCK:
-        return transactions.recover_pending()
+        issues = transactions.recover_pending()
+        RECOVERY_ERRORS.clear()
+        RECOVERY_ERRORS.update({issue["id"]: issue["error"] for issue in issues})
+        return issues
+
+
+def recovery_status():
+    with SAVE_LOCK:
+        records = transactions.pending_records()
+        for item in records:
+            if item["id"] in RECOVERY_ERRORS:
+                item["error"] = RECOVERY_ERRORS[item["id"]]
+        return {"items": records}
 
 
 class DuplicateReportError(ReportError):
@@ -64,7 +77,7 @@ def save_report_pair(report_data, report_name, hmi_data, hmi_name, *, record_dat
     """Publish one generation's two outputs; roll back only its new files on failure."""
     with SAVE_LOCK:
         folders = destination_folders()
-        for issue in transactions.recover_pending():
+        for issue in recover_pending():
             if issue["record_date"] == record_date and any(same_path(path, folder) for path in issue["folders"] for folder in folders.values()):
                 raise ReportError("이 기록일의 중단된 저장을 복구하지 못했습니다. 저장 폴더 연결과 기존 파일을 확인한 뒤 다시 실행해 주세요.")
         existing = existing_outputs(record_date, folders=folders)

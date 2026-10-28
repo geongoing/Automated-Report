@@ -118,6 +118,8 @@ function updateButtons() {
   for (const id of ['entry-tab', 'settings-tab', 'back-to-entry', 'source-settings']) $(id).disabled = state.busy || state.savingSettings || state.pickingFolder;
   document.querySelectorAll('.folder-browse,#folder-form input').forEach(control=>control.disabled=Boolean(state.busy || state.savingSettings || state.pickingFolder));
   $('entry-tab').disabled ||= !state.configured;
+  $('recovery-retry').disabled = locked || state.recoveryLoading || state.recoveryBusy;
+  document.querySelectorAll('.open-output-folder').forEach(button => button.disabled = state.busy);
   const count = countInputs();
   $('preview-button').disabled = locked || !state.inspected || count !== inputCells.length;
   const workersReady = !state.hmiLoading && hmiWorkersValid();
@@ -293,7 +295,18 @@ function renderOutputs(data) {
   for (const output of outputs) {
     const a = document.createElement('a'); a.className = 'download-button'; a.href = output.download_url;
     a.textContent = (output.kind === 'hmi' ? '송도 HMI 다운로드 ↓' : '최종 일지 다운로드 ↓');
-    $('output-downloads').append(a);
+    const group = document.createElement('div'); group.className = 'output-actions';
+    const button = document.createElement('button'); button.type = 'button';
+    button.className = 'text-button open-output-folder';
+    button.textContent = output.kind === 'hmi' ? 'HMI 폴더 열기 ↗' : '최종 일지 폴더 열기 ↗';
+    button.addEventListener('click', async () => {
+      if (state.busy || state.stopped) return;
+      button.disabled = true;
+      try { await api('/api/open-output-folder', {kind: output.kind, folder: output.folder}); }
+      catch (e) { showError(e.message); }
+      finally { button.disabled = state.busy || state.stopped; }
+    });
+    group.append(a, button); $('output-downloads').append(group);
   }
   $('saved-path').textContent = outputs.map(o => o.path).join('\n');
   $('hmi-completion-note').textContent = data.hmi?.note || data.note || '';
@@ -385,7 +398,7 @@ $('report-form').addEventListener('submit', async e => {
     renderOutputs(data); renderMetrics(data);
     await loadFiles(); $('success').scrollIntoView({ behavior:'smooth',block:'nearest' });
   } catch (e) { if (e.data?.code==='duplicate_report') state.existing=e.data.existing || null; showError(e.message); }
-  finally { controls.forEach(c => c.disabled = false); $('previous-select').disabled = true; state.busy = false; $('generate-button').textContent = '일지 생성 →'; updateButtons(); }
+  finally { controls.forEach(c => c.disabled = false); $('previous-select').disabled = true; state.busy = false; $('generate-button').textContent = '일지 생성 →'; updateButtons(); refreshRecovery(); }
 });
 function dayWorkers() { return Array.from(document.querySelectorAll('#day-worker-fields input')).map(i => i.value.trim()).filter(Boolean); }
 function nightWorkers() { return Array.from(document.querySelectorAll('#night-worker-fields input')).map(i => i.value.trim()); }
@@ -466,8 +479,42 @@ $('hmi-profile-reload').addEventListener('click',async()=>{
   queueDraft();
 });
 buildHmiEditor();
+function renderRecovery(data) {
+  state.recoveryBusy = Boolean(data.busy);
+  $('recovery-list').replaceChildren();
+  const items = data.items || [];
+  $('recovery-message').textContent = data.busy ? '일지 생성 또는 복구 중입니다.' : items.length ? '보류된 복구가 있습니다. 원래 저장 폴더와 아래 내용을 확인하세요.' : '보류된 복구가 없습니다.';
+  $('recovery-retry').hidden = !items.length;
+  for (const item of items) {
+    const li = document.createElement('li');
+    const title = document.createElement('strong'); title.textContent = item.record_date || '기록일 확인 필요';
+    const reason = document.createElement('p'); reason.textContent = item.error;
+    const folders = document.createElement('p'); folders.className = 'help'; folders.textContent = (item.folders || []).join('\n');
+    li.append(title, reason, folders); $('recovery-list').append(li);
+  }
+}
+async function refreshRecovery() {
+  if (state.stopped || state.recoveryLoading) return;
+  state.recoveryLoading = true; updateButtons();
+  try { renderRecovery(await api('/api/recovery')); }
+  catch (e) {
+    $('recovery-message').textContent = e.message;
+    $('recovery-retry').hidden = false;
+    state.recoveryBusy = false;
+  }
+  finally { state.recoveryLoading = false; updateButtons(); }
+}
+$('recovery-retry').addEventListener('click', async () => {
+  if ($('recovery-retry').disabled || state.stopped) return;
+  state.busy = true; updateButtons();
+  $('recovery-message').textContent = '중단된 저장을 다시 확인하고 있습니다…';
+  try { renderRecovery(await api('/api/recovery/retry', {})); }
+  catch (e) { $('recovery-message').textContent = e.message; }
+  finally { state.busy = false; updateButtons(); await refreshRecovery(); }
+});
 function switchTab(name, focus=false) {
   state.tab = name;
+  if (name === 'settings') refreshRecovery();
   for (const tab of ['entry','settings']) {
     const active = tab === name;
     $(`${tab}-page`).hidden = !active;
@@ -516,9 +563,11 @@ async function initialize() {
 }
 updateButtons();
 initialize();
+refreshRecovery();
 window.addEventListener('pagehide',flushDraftBeacons);
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) flushDrafts(); });
 setInterval(async () => {
+  if (!state.stopped && !state.busy && state.tab === 'settings' && !document.hidden) await refreshRecovery();
   if (!state.configured || state.stopped || state.busy || state.scanning || state.savingSettings || state.tab === 'settings' || state.hmiDirty || dayWorkers().length || nightWorkers().some(Boolean) || document.hidden || inputCells.some(id => $(id).value !== '')) return;
   try { if (await loadFiles(state.followingLatest, true)) await inspectFiles(); }
   catch (e) { ++state.fileRevision; ++state.revision; clearInspect(); $('file-status').textContent = e.message; }

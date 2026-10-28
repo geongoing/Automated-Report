@@ -84,6 +84,8 @@ def main():
             body['hmi']={**previous_hmi,'day_workers':[],'night_workers':['test1','test2']}
             generated=api('/api/generate',body)
             assert len(generated['outputs'])==2
+            assert all(Path(item['folder']).samefile(Path(item['path']).parent) for item in generated['outputs'])
+            assert api('/api/recovery')['items']==[]
             original_hashes={item['path']:hashlib.sha256(Path(item['path']).read_bytes()).hexdigest() for item in generated['outputs']}
             try:api('/api/generate',body)
             except urllib.error.HTTPError as error:assert error.code==409
@@ -129,15 +131,24 @@ tx.commit_pair(Path(sys.argv[3]).read_bytes(),Path(sys.argv[4]),Path(sys.argv[5]
                                   env=environment,timeout=30,creationflags=flags)
             assert crash.returncode==73 and recovered_report.exists() and not recovered_hmi.exists()
             stamp=recovered_report.stat().st_mtime_ns
+            recovered_hmi.write_bytes(b'foreign file must be preserved')
             run('--no-browser','--skip-update');running=True
             for _ in range(100):
                 if not api('/api/status')['busy']:break
                 time.sleep(.1)
+            blocked=api('/api/recovery')
+            assert len(blocked['items'])==1 and blocked['items'][0]['record_date']==TODAY.isoformat()
+            assert '덮어쓰지 않습니다' in blocked['items'][0]['error']
+            assert len(api('/api/recovery/retry',{})['items'])==1
+            assert recovered_hmi.read_bytes()==b'foreign file must be preserved'
+            recovered_hmi.unlink()  # Remove only this test's synthetic conflicting file.
+            assert api('/api/recovery/retry',{})['items']==[]
+            assert api('/api/recovery')['items']==[]
             assert recovered_hmi.read_bytes()==Path(generated['outputs'][1]['path']).read_bytes()
             assert recovered_report.stat().st_mtime_ns==stamp
             assert not list((profile/'pending-writes').iterdir())
             for path,digest in original_hashes.items():assert hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest
-            print('PASS: abrupt process exit after first workbook; frozen EXE recovered missing HMI without rewriting report or originals',flush=True)
+            print('PASS: recovery status shows conflict; retry preserves foreign file then recovers missing HMI without rewriting originals',flush=True)
             stop();running=False
             # A hash-correct file with basic PE fields but an invalid loader image
             # exercises real Windows launch failure and rollback without publishing it.

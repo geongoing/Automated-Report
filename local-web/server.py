@@ -12,10 +12,10 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from app_settings import settings, save_settings, select_folder, output_folder, hmi_output_folder
+from app_settings import settings, save_settings, select_folder, output_folder, hmi_output_folder, open_output_folder
 from drafts import get_draft, save_draft
 from report_files import catalog, auto_pair, source, hmi_template, hmi_profile, hmi_source_input
-from report_storage import DuplicateReportError, existing_outputs, output_info, save_report_pair, recover_pending
+from report_storage import DuplicateReportError, existing_outputs, output_info, save_report_pair, recover_pending, recovery_status
 from report import ReportError, generate_with_values, prepare
 from hmi import render_hmi
 from maintenance import BoundedLog
@@ -79,6 +79,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, settings())
             except ReportError as e:
                 return self.reply(400, {"error": str(e)})
+        if path == "/api/recovery":
+            try:
+                return self.reply(200, {**recovery_status(), "busy": ACTIVE_JOBS > 0})
+            except (OSError, ValueError) as e:
+                return self.reply(400, {"error": f"복구 기록을 확인하지 못했습니다: {e}"})
         if path == "/api/draft":
             try:
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -138,11 +143,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global ACTIVE_JOBS
-        generating = self.path == "/api/generate" and self.local_request()
+        generating = self.path in ("/api/generate", "/api/recovery/retry") and self.local_request()
         if generating:
             with JOB_LOCK:
                 if SHUTTING_DOWN:
                     return self.reply(409, {"error": "프로그램을 다시 시작하고 있습니다. 잠시 후 다시 실행해 주세요."})
+                if self.path == "/api/recovery/retry" and ACTIVE_JOBS:
+                    return self.reply(409, {"error": "일지 생성 또는 복구 중입니다. 작업이 끝난 뒤 다시 시도해 주세요."})
                 ACTIVE_JOBS += 1
         try:
             self.process_post()
@@ -156,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not self.local_request():
                 return self.reply(403, {"error": "로컬 웹 화면에서 실행해 주세요."})
-            if self.path not in ("/api/settings", "/api/select-folder", "/api/update/check", "/api/inspect", "/api/preview", "/api/generate", "/api/hmi/profile", "/api/shutdown", "/api/draft"):
+            if self.path not in ("/api/settings", "/api/select-folder", "/api/update/check", "/api/inspect", "/api/preview", "/api/generate", "/api/hmi/profile", "/api/shutdown", "/api/draft", "/api/recovery/retry", "/api/open-output-folder"):
                 return self.reply(404, {"error": "요청을 찾을 수 없습니다."})
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= MAX_REQUEST:
@@ -168,6 +175,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ReportError("요청 형식이 올바르지 않습니다.")
             if self.path == "/api/draft":
                 return self.reply(200, save_draft(body))
+            if self.path == "/api/open-output-folder":
+                return self.reply(200, open_output_folder(body))
+            if self.path == "/api/recovery/retry":
+                recover_pending()
+                return self.reply(200, recovery_status())
             if self.path == "/api/shutdown":
                 with JOB_LOCK:
                     if ACTIVE_JOBS:

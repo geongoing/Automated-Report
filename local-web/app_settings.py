@@ -1,12 +1,30 @@
 """Per-user folder settings and Windows folder selection."""
 from pathlib import Path
+import os
 import threading
 from folder_picker import choose_folder
 from report import ReportError
 import updater
-from runtime import APP_VERSION, CONFIG, DATA, FROZEN, FOLDER_KEYS, HMI_TEMPLATE
+from runtime import APP_VERSION, CONFIG, DATA, FROZEN, FOLDER_KEYS, HMI_TEMPLATE, same_path
 from persistence import read_backed_json, write_backed_json
 PICK_LOCK = threading.Lock()
+
+
+def open_output_folder(body):
+    choices = {"report": ("final_folder", "완성일지"), "hmi": ("hmi_folder", "HMI 일지")}
+    kind, expected = body.get("kind"), body.get("folder")
+    if not isinstance(kind, str) or kind not in choices or not isinstance(expected, str):
+        raise ReportError("열려는 저장 폴더를 확인해 주세요.")
+    folder = configured_folder(*choices[kind])
+    if not same_path(expected, folder):
+        raise ReportError("저장 후 폴더 설정이 변경되었습니다. 설정 화면에서 현재 경로를 확인해 주세요.")
+    if os.name != "nt":
+        raise ReportError("폴더 열기는 Windows에서 사용할 수 있습니다.")
+    try:
+        os.startfile(str(folder), "open")
+    except OSError:
+        raise ReportError("폴더를 열지 못했습니다. 경로와 연결 상태를 확인해 주세요.") from None
+    return {"message": "저장 폴더를 열었습니다."}
 
 
 def validate_settings(config):

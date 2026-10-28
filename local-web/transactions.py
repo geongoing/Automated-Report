@@ -182,6 +182,18 @@ def commit_pair(report_data, report_target, hmi_data, hmi_target, record_date):
     return report_target, hmi_target
 
 
+def recovery_message(error):
+    if isinstance(error, FileExistsError):
+        return "같은 이름의 다른 파일이 있어 복구를 보류했습니다. 기존 파일을 확인해 주세요. 덮어쓰지 않습니다."
+    if isinstance(error, PermissionError):
+        return "파일 접근 권한 또는 사용 중인 파일을 확인해 주세요. Excel에서 파일을 닫은 뒤 다시 시도하세요."
+    if isinstance(error, FileNotFoundError):
+        return "원래 저장 폴더 또는 복구 파일을 찾을 수 없습니다. 드라이브·공유폴더 연결을 확인해 주세요."
+    if isinstance(error, OSError):
+        return "저장 위치에 접근하지 못했습니다. 드라이브·공유폴더 연결, 여유 공간과 권한을 확인해 주세요."
+    return "복구 기록 또는 복구용 파일을 확인하지 못했습니다. 기록을 보존한 채 파일 상태를 확인해 주세요."
+
+
 def recover_pending():
     issues = []
     if not PENDING.is_dir() or is_link(PENDING):
@@ -210,8 +222,31 @@ def recover_pending():
                 rollback(journal)
             cleanup(folder, journal)
         except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
-            issues.append({"record_date": journal.get("record_date") if journal else None,
+            issues.append({"id": folder.name, "record_date": journal.get("record_date") if journal else None,
                            "folders": [item["folder"] for item in journal["outputs"]] if journal else [],
-                           "error": str(error)})
+                           "error": recovery_message(error)})
             print(f"중단된 저장 복구를 보류했습니다: {type(error).__name__}: {error}", flush=True)
     return issues
+
+
+def pending_records():
+    """Inspect local recovery records without writing files or probing shares."""
+    records = []
+    if not PENDING.exists():
+        return records
+    if is_link(PENDING):
+        raise ValueError("복구 기록 폴더가 연결 경로입니다. 원래 복구 폴더를 확인해 주세요.")
+    for folder in sorted(PENDING.iterdir()):
+        if not _ID.fullmatch(folder.name) or is_link(folder) or not folder.is_dir():
+            continue
+        item = {"id": folder.name, "record_date": None, "folders": [],
+                "error": "중단된 저장 기록이 있습니다. 다시 시도하면 원래 저장 위치에서 복구합니다."}
+        try:
+            journal = load_journal(folder)
+            item.update(record_date=journal["record_date"], folders=list(dict.fromkeys(output["folder"] for output in journal["outputs"])))
+            if journal["state"] == "complete":
+                item["error"] = "일지 저장은 완료됐지만 복구 기록 정리가 남아 있습니다."
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            item["error"] = "복구 기록을 읽지 못했습니다. 다시 시도해도 남아 있으면 복구 기록을 보존한 채 확인이 필요합니다."
+        records.append(item)
+    return records
