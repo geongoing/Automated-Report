@@ -93,7 +93,7 @@ class ServiceTests(unittest.TestCase):
                 wrong = patch_cell(hmi_xml, 'B8', (date - dt.timedelta(days=2)).strftime('근무 일지(%Y.%m.%d)'))
                 (self.hmi / 'wrong-date-newer-file.xlsx').write_bytes(replace_parts(template, {hmi_path: wrong}))
                 selected, _ = report_files.previous_hmi(date)
-                self.assertEqual(selected, previous_hmi)
+                self.assertTrue(selected.samefile(previous_hmi))
 
     def test_concurrent_generation_and_rewrite_allow_only_one_pair_each(self):
         args = self.outputs()
