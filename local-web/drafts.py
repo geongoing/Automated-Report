@@ -1,10 +1,10 @@
 """Date-scoped manual-input persistence, independent of HTTP handlers."""
 import datetime as dt
-import json
 import threading
 from hmi import STATUS_CELLS, DATE_CELLS
 from report import MANUAL, ReportError
-from runtime import DATA, write_json
+from runtime import DATA
+from persistence import read_backed_json, write_backed_json
 DRAFTS = DATA / "drafts.json"
 DRAFT_LOCK = threading.Lock()
 
@@ -49,14 +49,18 @@ def validate_draft(data):
             "hmi_folder": folder, "updated_at": stamp}
 
 
+def validate_drafts(data):
+    if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("days"), dict):
+        raise ValueError("임시 저장 기록 형식이 올바르지 않습니다.")
+    for date, draft in data["days"].items():
+        if validate_draft(draft)["record_date"] != date:
+            raise ValueError("임시 저장 기록일이 일치하지 않습니다.")
+    return data
+
+
 def read_drafts():
-    if not DRAFTS.exists():
-        return {"version": 1, "days": {}}
     try:
-        data = json.loads(DRAFTS.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("days"), dict):
-            raise ValueError
-        return data
+        return read_backed_json(DRAFTS, validate_drafts, lambda: {"version": 1, "days": {}})
     except (OSError, ValueError):
         raise ReportError("임시 저장 기록을 읽을 수 없습니다.") from None
 
@@ -76,5 +80,5 @@ def save_draft(body):
         if isinstance(current, dict) and current.get("updated_at", 0) >= draft["updated_at"]:
             return {"draft": current, "saved": False}
         data["days"][draft["record_date"]] = draft
-        write_json(DRAFTS, data)
+        write_backed_json(DRAFTS, data, validate_drafts)
         return {"draft": draft, "saved": True}

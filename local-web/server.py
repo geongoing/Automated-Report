@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from app_settings import settings, save_settings, select_folder, output_folder, hmi_output_folder
 from drafts import get_draft, save_draft
 from report_files import catalog, auto_pair, source, hmi_template, hmi_profile, hmi_source_input
-from report_storage import DuplicateReportError, existing_outputs, output_info, save_report_pair
+from report_storage import DuplicateReportError, existing_outputs, output_info, save_report_pair, recover_pending
 from report import ReportError, generate_with_values, prepare
 from hmi import render_hmi
 from maintenance import BoundedLog
@@ -27,6 +27,15 @@ MAX_REQUEST = 32 * 1024 * 1024
 JOB_LOCK = threading.Lock()
 ACTIVE_JOBS = 0
 SHUTTING_DOWN = False
+
+
+def recover_on_startup():
+    global ACTIVE_JOBS
+    try:
+        recover_pending()
+    finally:
+        with JOB_LOCK:
+            ACTIVE_JOBS -= 1
 
 
 class LocalServer(ThreadingHTTPServer):
@@ -211,6 +220,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None):
+    global ACTIVE_JOBS
     prepare_workspace()
     # pythonw has no console streams. Keep request/error logs available on disk.
     if sys.stdout is None or sys.stderr is None:
@@ -241,10 +251,15 @@ def main(argv=None):
         print(f"Port {args.port} is already in use. Open http://127.0.0.1:{args.port} or use --port 8766.", flush=True)
         raise SystemExit(1)
     url = f"http://127.0.0.1:{httpd.server_port}"
+    recovery = None
     try:
         write_json(SERVER_INFO, {"profile": str(DATA), "workspace": str(ROOT), "port": httpd.server_port, "pid": os.getpid(), "version": APP_VERSION,
                                  "executable": str(Path(sys.executable).resolve())})
         print(f"Songdo daily report: {url}\nSettings: {CONFIG}\nPress Ctrl+C to stop.", flush=True)
+        with JOB_LOCK:
+            ACTIVE_JOBS += 1
+        recovery = threading.Thread(target=recover_on_startup)
+        recovery.start()
         if not args.no_browser:
             threading.Timer(0.6, lambda: webbrowser.open(url)).start()
         httpd.serve_forever()
@@ -252,6 +267,8 @@ def main(argv=None):
         pass
     finally:
         httpd.server_close()
+        if recovery:
+            recovery.join()
         try:
             saved = json.loads(SERVER_INFO.read_text(encoding="utf-8"))
             if saved.get("pid") == os.getpid() and saved.get("port") == httpd.server_port:

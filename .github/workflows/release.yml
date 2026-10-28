@@ -5,6 +5,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+env:
+  PYTHONUTF8: '1'
 concurrency:
   group: windows-release
   cancel-in-progress: false

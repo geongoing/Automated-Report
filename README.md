@@ -1,7 +1,7 @@
 # Automated Report
 
 송도지소의 당일 레포트와 전날 최종 일지를 연결해 **최종 일지와 송도 HMI를 함께 생성**하는 Windows용 로컬 웹 프로그램입니다.
-현재 버전은 **v2.1.2**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
+현재 버전은 **v2.2.0**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
 
 배포본은 [최신 정식 버전](https://github.com/geongoing/Automated-Report/releases/latest)에서 받습니다.
 `SongdoDaily-v버전.zip`에는 `일지작성.exe` 하나가 들어 있습니다. 이후 EXE 실행 시 새 정식 버전을 자동 확인합니다.
@@ -18,6 +18,8 @@
 - `local-web/runtime.py`, `app_launcher.py`, `launcher.pyw`: 사용자 데이터 경로, 콘솔 없는 실행, 서버 재사용
 - `local-web/updater.py`: 정식 버전 확인, 검증된 실행 파일 설치, 이전 버전 복구
 - `local-web/maintenance.py`: 사용 중인 프로그램을 보호하는 캐시 정리, 용량 제한 로그
+- `local-web/persistence.py`: 파일 동기화·원자적 상태 저장, 정상 백업 3개와 자동 복원
+- `local-web/transactions.py`: 완성된 XLSX 게시, 중단된 일지 쌍 저장의 재시작 복구
 - `local-web/static/`: 웹 화면
 - `local-web/assets/`: 메모지·연필 아이콘
 - `송도_HMI.xlsx`: 빌드 및 HMI 생성용 양식 자산

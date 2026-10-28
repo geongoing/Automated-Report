@@ -1,19 +1,23 @@
 """Per-user folder settings and Windows folder selection."""
-import json
 from pathlib import Path
 import threading
 from folder_picker import choose_folder
 from report import ReportError
 import updater
-from runtime import APP_VERSION, CONFIG, DATA, FROZEN, FOLDER_KEYS, HMI_TEMPLATE, write_json
+from runtime import APP_VERSION, CONFIG, DATA, FROZEN, FOLDER_KEYS, HMI_TEMPLATE
+from persistence import read_backed_json, write_backed_json
 PICK_LOCK = threading.Lock()
+
+
+def validate_settings(config):
+    if not isinstance(config, dict) or any(key not in config or not isinstance(config[key], str) for key in FOLDER_KEYS):
+        raise ValueError("폴더 설정 형식이 올바르지 않습니다.")
+    return config
 
 
 def folder_config():
     try:
-        config = json.loads(CONFIG.read_text(encoding="utf-8")) if CONFIG.exists() else {}
-        if not isinstance(config, dict):
-            raise ValueError
+        config = read_backed_json(CONFIG, validate_settings, dict)
         result = {}
         for key in FOLDER_KEYS:
             value = config.get(key, "")
@@ -80,7 +84,7 @@ def save_settings(folder, previous_folder=None, previous_hmi_folder=None):
     config = {"raw_folder": validate_folder(folder, "당일 레포트 폴더"),
               "final_folder": validate_folder(folder if previous_folder is None else previous_folder, "완성일지 폴더"),
               "hmi_folder": validate_folder(previous_hmi_folder if previous_hmi_folder is not None else (folder if previous_folder is None else previous_folder), "HMI 일지 폴더")}
-    write_json(CONFIG, config)
+    write_backed_json(CONFIG, config, validate_settings)
     return settings()
 
 

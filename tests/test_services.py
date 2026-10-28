@@ -12,6 +12,7 @@ import app_settings
 import drafts
 import report_files
 import report_storage as storage
+import transactions
 from report import generate_with_values
 from hmi import render_hmi
 from fixtures import TODAY, INPUTS, make_report
@@ -26,8 +27,9 @@ class ServiceTests(unittest.TestCase):
         for path in (self.raw, self.final, self.hmi): path.mkdir()
         config = patch.object(app_settings, 'CONFIG', self.base / 'settings.json')
         draft = patch.object(drafts, 'DRAFTS', self.base / 'drafts.json')
-        config.start(); draft.start()
-        self.addCleanup(config.stop); self.addCleanup(draft.stop)
+        pending = patch.object(transactions, 'PENDING', self.base / 'pending-writes')
+        config.start(); draft.start(); pending.start()
+        self.addCleanup(config.stop); self.addCleanup(draft.stop); self.addCleanup(pending.stop)
         app_settings.save_settings(str(self.raw), str(self.final), str(self.hmi))
         self.raw_data = make_report(TODAY)
         self.previous = make_report(TODAY - dt.timedelta(days=1), True)
@@ -55,11 +57,11 @@ class ServiceTests(unittest.TestCase):
 
     def test_pair_save_failure_removes_only_its_first_new_file(self):
         args = self.outputs()
-        real_save = storage.save_unique
-        def save(data, name, *, folder):
-            if folder.samefile(self.hmi): raise OSError('simulated full disk')
-            return real_save(data, name, folder=folder)
-        with patch.object(storage, 'save_unique', side_effect=save), self.assertRaises(OSError):
+        publish = transactions.publish_output
+        def save(folder, journal, item):
+            if item['kind'] == 'hmi': raise OSError('simulated full disk')
+            return publish(folder, journal, item)
+        with patch.object(transactions, 'publish_output', side_effect=save), self.assertRaises(OSError):
             storage.save_report_pair(*args, record_date=TODAY.isoformat())
         self.assertEqual(list(self.final.iterdir()), [self.final / '20261026.xlsx'])
         self.assertEqual((self.final / '20261026.xlsx').read_bytes(), self.previous)

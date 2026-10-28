@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -94,10 +95,49 @@ def main():
                    'day_workers':['','','','','','','',''],'night_workers':['test1','test2'],'hmi_fields':{},'hmi_folder':str(hmi)}
             api('/api/draft',draft)
             protected={path:path.read_bytes() for path in (profile/'settings.json',profile/'drafts.json')}
+            assert list((profile/'backups/settings').glob('good-*.json'))
+            assert list((profile/'backups/drafts').glob('good-*.json'))
             stop();running=False
+            for path in protected:path.write_bytes(b'{damaged state')
             run('--no-browser','--skip-update');running=True
             assert api('/api/draft?date='+TODAY.isoformat())['draft']==draft
-            print('PASS: synthetic report/HMI generation, duplicates and explicit rewrite, original preservation and autosave restart',flush=True)
+            for path,data in protected.items():
+                assert path.read_bytes()==data
+                assert (profile/'backups'/path.stem/'damaged.json').read_bytes()==b'{damaged state'
+            print('PASS: synthetic report/HMI generation, duplicates/rewrite, original preservation, corrupted settings/drafts restored on EXE restart',flush=True)
+            stop();running=False
+            # Build an interrupted transaction in the isolated profile, then let
+            # the bundled EXE (not this source process) resume it on startup.
+            crash_script='''
+import os,sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import transactions as tx
+tx.PENDING=Path(sys.argv[2])/'pending-writes'
+publish=tx.publish_output
+def abrupt(folder,journal,item):
+    result=publish(folder,journal,item)
+    if item['kind']=='report':os._exit(73)
+    return result
+tx.publish_output=abrupt
+tx.commit_pair(Path(sys.argv[3]).read_bytes(),Path(sys.argv[4]),Path(sys.argv[5]).read_bytes(),Path(sys.argv[6]),sys.argv[7])
+'''
+            recovered_report=final/f'{TODAY+dt.timedelta(days=1):%Y%m%d}_3.xlsx'
+            recovered_hmi=hmi/f'송도지소_하수_{TODAY:%Y%m%d}_3.xlsx'
+            crash=subprocess.run([sys.executable,'-B','-c',crash_script,str(Path(__file__).resolve().parents[1]/'local-web'),str(profile),
+                                  generated['outputs'][0]['path'],str(recovered_report),generated['outputs'][1]['path'],str(recovered_hmi),TODAY.isoformat()],
+                                  env=environment,timeout=30,creationflags=flags)
+            assert crash.returncode==73 and recovered_report.exists() and not recovered_hmi.exists()
+            stamp=recovered_report.stat().st_mtime_ns
+            run('--no-browser','--skip-update');running=True
+            for _ in range(100):
+                if not api('/api/status')['busy']:break
+                time.sleep(.1)
+            assert recovered_hmi.read_bytes()==Path(generated['outputs'][1]['path']).read_bytes()
+            assert recovered_report.stat().st_mtime_ns==stamp
+            assert not list((profile/'pending-writes').iterdir())
+            for path,digest in original_hashes.items():assert hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest
+            print('PASS: abrupt process exit after first workbook; frozen EXE recovered missing HMI without rewriting report or originals',flush=True)
             stop();running=False
             # A hash-correct file with basic PE fields but an invalid loader image
             # exercises real Windows launch failure and rollback without publishing it.

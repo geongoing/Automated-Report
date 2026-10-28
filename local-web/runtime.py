@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from persistence import write_json
 
 FROZEN = bool(getattr(sys, "frozen", False))
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
@@ -25,15 +26,6 @@ def same_path(left, right):
         return os.path.samefile(left, right)
     except (OSError, TypeError, ValueError):
         return False
-
-
-def write_json(path, data):
-    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def same_profile(info):

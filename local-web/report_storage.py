@@ -4,10 +4,12 @@ import hashlib
 import json
 import threading
 import urllib.parse
-from app_settings import configured_folder, folder_config, output_folder
+import transactions
+from app_settings import configured_folder, folder_config
 from report import ReportError
 from report_files import file_metadata, hmi_metadata
-SAVE_LOCK = threading.Lock()
+from runtime import same_path
+SAVE_LOCK = threading.RLock()
 
 
 def output_info(path, kind):
@@ -15,26 +17,9 @@ def output_info(path, kind):
             "download_url": ("/download/hmi/" if kind == "hmi" else "/download/") + urllib.parse.quote(path.name)}
 
 
-def save_unique(data, name, *, folder=None):
-    output = output_folder() if folder is None else folder
-    if not output.is_dir():
-        raise ReportError("저장할 폴더를 찾을 수 없습니다. 설정에서 경로를 확인해 주세요.")
-    target = output / name
-    stem = target.stem
-    for attempt in range(10000):
-        candidate = target if attempt == 0 else output / f"{stem}_{attempt + 1}.xlsx"
-        try:
-            with candidate.open("xb") as f:
-                try:
-                    f.write(data)
-                except BaseException:
-                    f.close()
-                    candidate.unlink(missing_ok=True)
-                    raise
-            return candidate
-        except FileExistsError:
-            continue
-    raise ReportError("같은 이름의 파일이 너무 많습니다. 완성일지 폴더를 정리해 주세요.")
+def recover_pending():
+    with SAVE_LOCK:
+        return transactions.recover_pending()
 
 
 class DuplicateReportError(ReportError):
@@ -77,19 +62,14 @@ def existing_outputs(record_date, *, folders=None):
 
 def save_report_pair(report_data, report_name, hmi_data, hmi_name, *, record_date, rewrite_token=None):
     """Publish one generation's two outputs; roll back only its new files on failure."""
-    created = []
     with SAVE_LOCK:
         folders = destination_folders()
+        for issue in transactions.recover_pending():
+            if issue["record_date"] == record_date and any(same_path(path, folder) for path in issue["folders"] for folder in folders.values()):
+                raise ReportError("이 기록일의 중단된 저장을 복구하지 못했습니다. 저장 폴더 연결과 기존 파일을 확인한 뒤 다시 실행해 주세요.")
         existing = existing_outputs(record_date, folders=folders)
         if existing["outputs"] and rewrite_token != existing["token"]:
             raise DuplicateReportError(existing)
-        try:
-            report_path = save_unique(report_data, report_name, folder=folders["report"])
-            created.append(report_path)
-            hmi_path = save_unique(hmi_data, hmi_name, folder=folders["hmi"])
-            created.append(hmi_path)
-            return report_path, hmi_path
-        except BaseException:
-            for path in reversed(created):
-                path.unlink(missing_ok=True)
-            raise
+        report_path = transactions.unique_target(folders["report"], report_name)
+        hmi_path = transactions.unique_target(folders["hmi"], hmi_name)
+        return transactions.commit_pair(report_data, report_path, hmi_data, hmi_path, record_date)
