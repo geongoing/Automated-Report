@@ -15,7 +15,8 @@ import time
 import urllib.parse
 import urllib.request
 
-from runtime import DATA, FROZEN, SERVER_INFO, same_profile, write_json
+from runtime import DATA, FROZEN, SERVER_INFO, same_path, same_profile, write_json
+from maintenance import cleanup_versions, is_link
 
 REPOSITORY = "geongoing/Automated-Report"
 RELEASES = "https://github.com/" + REPOSITORY + "/releases"
@@ -196,7 +197,11 @@ def record_path(value, sha):
 def valid_record(record):
     try:
         target = record_path(record["version"], record["sha256"])
-        if Path(record["path"]).resolve() != target.resolve() or not target.resolve().is_relative_to(VERSIONS.resolve()):
+        # MSIX can redirect the leaf file while its parent directory keeps its
+        # logical path. Check the known parent boundary and reject file links;
+        # do not require the redirected leaf's resolved string to share a prefix.
+        if (not same_path(record["path"], target) or is_link(target) or
+                not target.parent.resolve().is_relative_to(VERSIONS.resolve())):
             return False
         return target.is_file() and target.stat().st_size <= MAX_EXE and digest(target) == record["sha256"]
     except (OSError, ValueError, TypeError, KeyError):
@@ -212,7 +217,7 @@ def bundled_record(current):
     sha = digest(source)
     item = record(current, sha)
     target = Path(item["path"])
-    if source != target.resolve() and not valid_record(item):
+    if not same_path(source, target) and not valid_record(item):
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(f".{os.getpid()}.tmp")
         try:
@@ -276,24 +281,22 @@ def run_record(item, args, *, managed=False):
         raise UpdateError("저장된 실행 파일이 손상되었거나 없습니다.")
     environment = dict(os.environ)
     environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    command = [item["path"], "--managed" if managed else "--run-installed", "--no-browser"]
+    executable = record_path(item["version"], item["sha256"])
+    command = [str(executable), "--managed" if managed else "--run-installed", "--no-browser"]
     if args.port is not None:
         command += ["--port", str(args.port)]
     if args.skip_update:
         command.append("--skip-update")
-    logs = DATA / "logs"
-    logs.mkdir(exist_ok=True)
-    with (logs / "updater.log").open("ab") as log:
-        try:
-            result = subprocess.run(command, cwd=Path(item["path"]).parent, env=environment,
-                                    stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=125 if managed else 30)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            raise UpdateError("새 프로그램의 실행을 확인하지 못했습니다.") from e
+    try:
+        result = subprocess.run(command, cwd=executable.parent, env=environment,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=125 if managed else 30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise UpdateError("새 프로그램의 실행을 확인하지 못했습니다.") from e
     if result.returncode == 2:
         raise UpdateDeferred("일지 생성 중이므로 업데이트를 다음 실행으로 미뤘습니다.")
     info = live_server()
-    if result.returncode or not info or (not managed and (info.get("version") != item["version"] or info.get("executable") != str(Path(item["path"]).resolve()))):
+    if result.returncode or not info or (not managed and (info.get("version") != item["version"] or not same_path(info.get("executable"), executable))):
         raise UpdateError("새 프로그램의 시작 확인에 실패했습니다.")
     return info["url"]
 
@@ -301,12 +304,15 @@ def run_record(item, args, *, managed=False):
 def activate(item):
     state = read_json(STATE)
     previous = state.get("active")
-    if previous != item:
+    if not same_build(previous, item):
         failed = state.get("failed", {})
         if valid_record(previous) and not same_build(previous, failed):
             state["previous"] = previous
-        state["active"] = item
+    state["active"] = item
     write_json(STATE, state)
+    live = live_server()
+    cleanup_versions(VERSIONS, [item.get("path") for key in ("active", "previous") if isinstance(item := state.get(key), dict)] +
+                     [sys.executable, live.get("executable") if live else None])
 
 
 def same_build(left, right):
@@ -315,6 +321,7 @@ def same_build(left, right):
 
 def managed_launch(current, args, start_local):
     own = bundled_record(current)
+    args.installed_executable = own["path"]
     with update_lock():
         state = read_json(STATE)
         active = state.get("active")
@@ -391,6 +398,10 @@ def launch(current, args, start_local):
         if own in choices and version(own["version"]) == version(best["version"]):
             best = own
     try:
+        if same_build(best, own):
+            # This process already contains the selected updater. Avoid starting
+            # an identical one-file controller (and extracting it) a second time.
+            return managed_launch(current, args, start_local)
         return run_record(best, args, managed=True)
     except UpdateDeferred:
         live = live_server()

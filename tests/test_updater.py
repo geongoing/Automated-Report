@@ -67,6 +67,27 @@ class UpdaterTests(unittest.TestCase):
         Path(item['path']).write_bytes(b'changed')
         self.assertFalse(u.valid_record(item));self.assertFalse(u.valid_record(None))
 
+    def test_projected_leaf_file_is_valid_but_foreign_record_is_not(self):
+        item=self.item();target=Path(item['path']);original=Path.resolve
+        def projected(path,*args,**kwargs):
+            if path==target:return self.root/'windows-projected-file.exe'
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'resolve',projected):
+            self.assertTrue(u.valid_record(item))
+            self.assertFalse(u.valid_record({**item,'path':str(self.root/'foreign.exe')}))
+
+    def test_current_build_does_not_spawn_an_identical_controller(self):
+        own=self.item()
+        with patch.object(u,'bundled_record',return_value=own),patch.object(u,'managed_launch',return_value='http://ready') as manage,patch.object(u,'run_record') as run:
+            self.assertEqual(u.launch('2.0.0',self.args,lambda args:None),'http://ready')
+            manage.assert_called_once();run.assert_not_called()
+
+    def test_hardlink_alias_matches_the_expected_installed_file(self):
+        item=self.item();alias=self.root/'alias.exe'
+        try:alias.hardlink_to(item['path'])
+        except OSError:self.skipTest('Hard links unavailable')
+        self.assertTrue(u.valid_record({**item,'path':str(alias)}))
+
     def test_rejects_insecure_or_foreign_redirects(self):
         redirect=u.TrustedRedirect();request=urllib.request.Request(u.MANIFEST_URL)
         for target in ['http://github.com/a','https://example.com/a','https://github.com.example.com/a']:

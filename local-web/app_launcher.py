@@ -11,9 +11,9 @@ import time
 import urllib.request
 import webbrowser
 
-from runtime import ROOT, DATA, RESOURCES, FROZEN, SERVER_INFO, prepare_workspace, same_profile
+from runtime import ROOT, DATA, APP_VERSION, FROZEN, SERVER_INFO, prepare_workspace, same_path, same_profile
+from maintenance import BoundedLog, process_alive
 
-APP_VERSION = json.loads((RESOURCES / "version.json").read_text(encoding="utf-8"))["version"]
 DEFAULT_PORT = 8765
 
 
@@ -36,7 +36,7 @@ def candidate_ports(explicit=None):
     ports = []
     try:
         saved = json.loads(SERVER_INFO.read_text(encoding="utf-8"))
-        if isinstance(saved, dict) and saved.get("profile") == str(DATA) and type(saved.get("port")) is int and 0 < saved["port"] < 65536:
+        if isinstance(saved, dict) and same_path(saved.get("profile"), DATA) and type(saved.get("port")) is int and 0 < saved["port"] < 65536:
             ports.append(saved["port"])
     except (OSError, ValueError, TypeError):
         pass
@@ -94,29 +94,33 @@ def stop_server(url):
             marker = json.loads(SERVER_INFO.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             marker = {}
-        if (not before or marker.get("pid") != before.get("pid")) and not status(url):
-            return
+        if not status(url):
+            if not before or marker.get("pid") != before.get("pid"):
+                return
+            if not process_alive(before.get("pid")):
+                # A terminated process can leave its marker behind. Never wait
+                # forever or remove a replacement server's freshly written marker.
+                if marker == before:
+                    SERVER_INFO.unlink(missing_ok=True)
+                return
         time.sleep(0.1)
     raise RuntimeError("기존 프로그램이 작업을 마치고 종료하기를 기다리고 있습니다. 잠시 후 다시 실행해 주세요.")
 
 
-def start_server(port):
-    log_folder = DATA / "logs"
-    log_folder.mkdir(exist_ok=True)
+def start_server(port, installed_executable=None):
     environment = dict(os.environ)
     if FROZEN:
-        command = [sys.executable, "--serve", "--port", str(port)]
+        command = [str(installed_executable or sys.executable), "--serve", "--port", str(port)]
         environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     else:
         executable = Path(sys.executable).with_name("pythonw.exe")
         if not executable.is_file():
             executable = Path(sys.executable)
         command = [str(executable), "-B", str(Path(__file__).resolve()), "--serve", "--port", str(port)]
-    with (log_folder / "server.log").open("ab") as log:
-        process = subprocess.Popen(command,
-                                   cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                   env=environment,
-                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    process = subprocess.Popen(command,
+                               cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               env=environment,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         if status(server_url(port)):
@@ -144,17 +148,19 @@ def parse_args():
 
 
 def start_local(args):
+    installed_executable = getattr(args, "installed_executable", None)
+    desired_executable = installed_executable or sys.executable
     port, existing = select_server(args.port)
     url = server_url(port)
     if existing and (version_tuple(existing.get("version")) < version_tuple(APP_VERSION) or
                      version_tuple(existing.get("version")) == version_tuple(APP_VERSION) and FROZEN and
-                     (existing.get("execution_mode") != "exe" or existing.get("executable") != str(Path(sys.executable).resolve()))):
+                     (existing.get("execution_mode") != "exe" or not same_path(existing.get("executable"), desired_executable))):
         stop_server(url)
         existing = None
     if not existing:
         prepare_workspace()
         for attempt in range(3):
-            if start_server(port):
+            if start_server(port, installed_executable):
                 break
             if args.port is not None or port_available(port) or attempt == 2:
                 raise RuntimeError("서버를 시작하지 못했습니다. 오류 기록을 확인해 주세요.")
@@ -194,14 +200,9 @@ def main():
 
 
 def entrypoint():
-    if FROZEN and (sys.stdout is None or sys.stderr is None):
-        log_folder = DATA / "logs"
-        log_folder.mkdir(parents=True, exist_ok=True)
-        log = (log_folder / "launcher.log").open("a", encoding="utf-8", buffering=1)
-        if sys.stdout is None:
-            sys.stdout = log
-        if sys.stderr is None:
-            sys.stderr = log
+    if FROZEN:
+        name = "server.log" if "--serve" in sys.argv else ("updater.log" if "--managed" in sys.argv or "--run-installed" in sys.argv else "launcher.log")
+        sys.stdout = sys.stderr = BoundedLog(DATA / "logs" / name)
     try:
         main()
     except Exception as error:

@@ -17,6 +17,7 @@ from fixtures import INPUTS,TODAY,make_report,pe_bytes
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--exe',type=Path,required=True)
+    parser.add_argument('--compat-exe',type=Path)
     args=parser.parse_args()
     original=args.exe.resolve()
     with tempfile.TemporaryDirectory(prefix='songdo-frozen-') as temporary:
@@ -31,9 +32,11 @@ def main():
         flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
         running=False
         def run(*extra):
+            started=time.perf_counter()
             result=subprocess.run([str(exe),*extra],env=environment,cwd=program,timeout=100,
                                   stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=flags)
             assert result.returncode==0,(extra,result.returncode)
+            return time.perf_counter()-started
         def api(path,body=None):
             port=json.loads(marker.read_text(encoding='utf-8'))['port']
             request=urllib.request.Request(f'http://127.0.0.1:{port}'+path,
@@ -49,14 +52,25 @@ def main():
             assert not marker.exists()
             time.sleep(.7)
         try:
-            run('--no-browser','--skip-update');running=True
+            cold=run('--no-browser','--skip-update');running=True
             status=api('/api/status');current=status['version']
             assert status['execution_mode']=='exe' and Path(status['executable']).is_relative_to(profile/'app/versions')
             assert list(program.iterdir())==[exe]
             settings=api('/api/settings')
             assert settings['configured'] is False and settings['hmi_available']
             assert all(settings[key]=='' for key in ('raw_folder','final_folder','hmi_folder'))
+            pid=json.loads(marker.read_text(encoding='utf-8'))['pid']
+            warm=run('--no-browser','--skip-update')
+            assert json.loads(marker.read_text(encoding='utf-8'))['pid']==pid
+            print(f'STARTUP: cold={cold:.3f}s, existing server={warm:.3f}s (offline check)',flush=True)
             print('PASS: standalone managed EXE; no Python; no files beside launch EXE; first setup blank',flush=True)
+            if args.compat_exe:
+                legacy=base/'legacy.exe';shutil.copy2(args.compat_exe.resolve(),legacy)
+                result=subprocess.run([str(legacy),'--no-browser','--skip-update'],env=environment,cwd=base,
+                                      timeout=100,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=flags)
+                assert result.returncode==0 and api('/api/status')['version']==current
+                assert json.loads(marker.read_text(encoding='utf-8'))['pid']==pid
+                print('PASS: older entry EXE delegates to current installed build without restarting server',flush=True)
             raw,final,hmi=[base/name for name in ('raw','final','hmi')]
             for folder in (raw,final,hmi):folder.mkdir()
             (raw/'20261027.xlsx').write_bytes(make_report(TODAY))

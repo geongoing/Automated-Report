@@ -1,7 +1,7 @@
 # Automated Report
 
 송도지소의 당일 레포트와 전날 최종 일지를 연결해 **최종 일지와 송도 HMI를 함께 생성**하는 Windows용 로컬 웹 프로그램입니다.
-현재 버전은 **v2.0.1**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
+현재 버전은 **v2.1.0**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
 
 배포본은 [최신 정식 버전](https://github.com/geongoing/Automated-Report/releases/latest)에서 받습니다.
 `SongdoDaily-v버전.zip`에는 `일지작성.exe` 하나가 들어 있습니다. 이후 EXE 실행 시 새 정식 버전을 자동 확인합니다.
@@ -11,10 +11,13 @@
 
 - `local-web/report.py`: 일지 계산, 이월, XLSX 읽기·수정
 - `local-web/hmi.py`: 같은 계산 결과로 HMI 생성
-- `local-web/server.py`: 폴더 설정, 자료 검색, 임시 저장, 생성·재작성 API
+- `local-web/server.py`: HTTP API, 생성 중 종료 방지, 서버 수명 관리
+- `local-web/app_settings.py`, `drafts.py`: 폴더 설정·선택, 날짜별 임시 저장
+- `local-web/report_files.py`, `report_storage.py`: 자료 검색·이월, 중복 확인·일지 쌍 저장
 - `local-web/folder_picker.py`: Windows 폴더 선택 창
 - `local-web/runtime.py`, `app_launcher.py`, `launcher.pyw`: 사용자 데이터 경로, 콘솔 없는 실행, 서버 재사용
 - `local-web/updater.py`: 정식 버전 확인, 검증된 실행 파일 설치, 이전 버전 복구
+- `local-web/maintenance.py`: 사용 중인 프로그램을 보호하는 캐시 정리, 용량 제한 로그
 - `local-web/static/`: 웹 화면
 - `local-web/assets/`: 메모지·연필 아이콘
 - `송도_HMI.xlsx`: 빌드 및 HMI 생성용 양식 자산

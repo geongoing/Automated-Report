@@ -14,6 +14,17 @@ CONFIG = DATA / "settings.json"
 SERVER_INFO = DATA / "server.json"
 FOLDER_KEYS = ("raw_folder", "final_folder", "hmi_folder")
 HMI_TEMPLATE = RESOURCES.parent / "templates" / "송도_HMI.xlsx" if FROZEN else ROOT / "송도_HMI.xlsx"
+APP_VERSION = json.loads((RESOURCES / "version.json").read_text(encoding="utf-8"))["version"]
+
+
+def same_path(left, right):
+    """Match ordinary paths and Windows' aliases for the same existing file."""
+    try:
+        if os.path.normcase(os.path.abspath(left)) == os.path.normcase(os.path.abspath(right)):
+            return True
+        return os.path.samefile(left, right)
+    except (OSError, TypeError, ValueError):
+        return False
 
 
 def write_json(path, data):
@@ -29,9 +40,9 @@ def same_profile(info):
     if not isinstance(info, dict) or info.get("app") != "SongdoLocal":
         return False
     if info.get("profile"):
-        return Path(info["profile"]).resolve() == DATA.resolve()
+        return same_path(info["profile"], DATA)
     # Allow an upgrade to stop the old server from this exact EXE folder.
-    return bool(info.get("workspace")) and Path(info["workspace"]).resolve() == ROOT
+    return bool(info.get("workspace")) and same_path(info["workspace"], ROOT)
 
 
 def prepare_workspace():
