@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="송도지소 최종 운영일지와 HMI를 함께 작성합니다.">
+  <title>일지 작성</title>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <nav class="tabs" role="tablist" aria-label="화면 선택">
+        <button id="entry-tab" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="entry-page">일지 작성</button>
+        <button id="settings-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="settings-page" tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.3-2 .9-2.2-.7-2.5 4.3 1.7 1.6v2.3l-1.7 1.6L4.7 20l2.2-.7 2 .9.6 2.3h5l.6-2.3 2-.9 2.2.7 2.5-4.3-1.7-1.6v-2.3l1.7-1.6-2.5-4.3-2.2.7-2-.9L14.5 3Z" transform="translate(0 -1) scale(1 .96)"/><circle cx="12" cy="11.8" r="3"/></svg>설정</button>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section id="entry-page" role="tabpanel" aria-labelledby="entry-tab">
+      <div class="record-heading"><span id="draft-status" class="draft-status" role="status" aria-live="polite"></span><span class="record-label">운영 기록일 <strong id="record-date">확인 중</strong></span></div>
+      <div class="entry-card">
+        <div class="source-line"><p id="file-status" role="status">당일 레포트와 전날 자료를 불러오고 있습니다.</p><button class="text-button" id="source-settings" type="button">불러온 자료 확인 <span aria-hidden="true">↗</span></button></div>
+        <details id="existing-report" class="existing-report" hidden><summary id="existing-summary"></summary><ul id="existing-files" class="existing-files"></ul></details>
+        <form id="report-form" novalidate>
+          <div class="numeric-grid">
+            <label class="field" for="B32"><span>케이크 반출량</span><div class="input-wrap"><input id="B32" name="B32" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"><span>TON</span></div></label>
+            <label class="field" for="G32"><span>협잡물 반출량</span><div class="input-wrap"><input id="G32" name="G32" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"><span>TON</span></div></label>
+            <label class="field" for="D37"><span>태양광 <small>100 kW</small></span><div class="input-wrap"><input id="D37" name="D37" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"></div></label>
+            <label class="field" for="E37"><span>태양광 <small>50 kW</small></span><div class="input-wrap"><input id="E37" name="E37" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"></div></label>
+            <label class="field" for="F37"><span>태양광 <small>37 kW</small></span><div class="input-wrap"><input id="F37" name="F37" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"></div></label>
+            <label class="field" for="F42"><span>시상수 금일지침</span><div class="input-wrap"><input id="F42" name="F42" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"><span>㎥</span></div></label>
+          </div>
+          <div class="numeric-help"><span id="water-hint">시상수 전일지침 확인 중</span></div>
+          <div id="hmi-editor">
+            <div class="staff-grid">
+              <div><div class="field-heading"><label>당직 근무자</label></div><div id="night-worker-fields" class="worker-grid night-worker-grid"></div></div>
+              <div><div class="field-heading"><label>일근 근무자</label></div><div id="day-worker-fields" class="worker-grid"></div></div>
+            </div>
+            <details id="carry-editor" class="carry-editor"><summary><span>세정일자 · 가동상태</span><span id="carry-note" class="carry-note">전날 자료 확인 중</span></summary><div class="carry-content"><p id="carry-help" class="help">전날 내용을 이어 받습니다. 변경된 항목만 수정하세요.</p><div class="table-scroll"><table class="hmi-carry-table"><thead><tr><th>분리막</th><th>가동상태</th><th>유지세정</th><th>알칼리세정</th><th>산세정</th></tr></thead><tbody id="hmi-carry-body"></tbody></table></div></div></details>
+          </div>
+          <div id="warnings" class="warnings" hidden></div>
+          <div id="calculation" class="calculation" hidden><h2>계산 결과</h2><div id="metrics"></div></div>
+          <div class="form-actions"><div class="action-buttons"><button id="preview-button" class="secondary-button" type="button" disabled>계산 확인</button><button id="generate-button" class="primary-button" type="submit" disabled>일지 생성 <span aria-hidden="true">→</span></button></div></div>
+        </form>
+      </div>
+      <section id="success" class="success-card" role="status" hidden><div class="success-heading"><span class="success-icon">✓</span><div><h3>일지 2개가 완성됐습니다.</h3><p id="saved-name"></p></div></div><div id="output-downloads"></div><details class="output-details"><summary>저장 위치 확인</summary><p id="saved-path"></p><p id="hmi-completion-note"></p></details></section>
+    </section>
+    <section id="settings-page" role="tabpanel" aria-labelledby="settings-tab" hidden>
+      <div class="page-heading"><div><h1>설정</h1><p>저장한 경로는 다음 실행에도 유지됩니다.</p></div><button id="back-to-entry" class="secondary-button" type="button">입력으로 돌아가기</button></div>
+      <section id="folder-settings" class="settings-card"><h2>폴더 경로</h2><p id="setup-message" class="help" role="status" hidden></p><form id="folder-form"><label for="folder-path">당일 레포트</label><div class="folder-input"><input id="folder-path" type="text" spellcheck="false" placeholder="예: C:\공정제어\일일레포트" required><button class="secondary-button folder-browse" type="button" data-kind="raw_folder" data-input="folder-path" aria-label="당일 레포트 폴더 찾아보기">찾아보기</button></div><label for="final-folder-path">완성일지</label><div class="folder-input"><input id="final-folder-path" type="text" spellcheck="false" placeholder="예: D:\운영일지" required><button class="secondary-button folder-browse" type="button" data-kind="final_folder" data-input="final-folder-path" aria-label="완성일지 폴더 찾아보기">찾아보기</button></div><label for="hmi-folder-path">HMI 일지</label><div class="folder-input"><input id="hmi-folder-path" type="text" spellcheck="false" placeholder="예: D:\HMI일지" required><button class="secondary-button folder-browse" type="button" data-kind="hmi_folder" data-input="hmi-folder-path" aria-label="HMI 일지 폴더 찾아보기">찾아보기</button></div><p class="help">기존 파일이 있는 폴더를 각각 지정하세요. 완성일지와 HMI는 지정한 폴더에 저장됩니다.</p><div class="settings-actions"><p id="folder-message" role="status"></p><button id="folder-save" type="submit" class="primary-button">경로 저장</button></div></form></section>
+      <section id="source-details" class="settings-card"><div class="section-heading"><h2>불러온 자료</h2><button id="refresh" class="text-button" type="button">다시 찾기 ↻</button></div><div class="source-grid"><div><label for="raw-select">당일 레포트</label><select id="raw-select"><option value="">검색 중</option></select><p id="raw-hint" class="help"></p></div><div><label for="previous-select">전날 최종 일지</label><select id="previous-select" disabled><option value="">검색 중</option></select><p id="previous-hint" class="help"></p></div></div><p id="hmi-profile-info" class="help">전날 HMI 확인 중</p><button id="hmi-profile-reload" class="text-button" type="button">HMI 이월값 다시 불러오기 ↻</button><details class="technical-details"><summary>자동 이월값 · 저장 위치</summary><div class="table-scroll"><table><thead><tr><th>항목</th><th>전날 → 오늘 셀</th><th>이월값</th></tr></thead><tbody id="carry-body"><tr><td colspan="3">자료 확인 중</td></tr></tbody></table></div><p id="record-subtitle" class="help"></p><p id="output-location" class="help"></p><p id="hmi-template-info" class="help"></p><p class="help">D20은 당일 레포트의 값을 유지합니다. 파일명은 운영 기록일 다음 날의 날짜입니다.</p></details></section>
+      <div class="server-controls"><p id="runtime-label"><i></i> 이 PC에서 실행 중 <span id="app-version" class="app-version"></span></p><button id="server-stop" class="text-button" type="button">서버 종료</button></div>
+    </section>
+  </main>
+  <dialog id="rewrite-dialog" aria-labelledby="rewrite-title" aria-describedby="rewrite-description"><h2 id="rewrite-title">같은 기록일의 일지가 있습니다.</h2><p id="rewrite-date"></p><ul id="rewrite-files" class="existing-files"></ul><p id="rewrite-description">기존 파일을 보존하고, 번호를 붙인 새 일지 2개를 생성합니다.</p><div class="dialog-actions"><button id="rewrite-cancel" class="secondary-button" type="button" autofocus>취소</button><button id="rewrite-confirm" class="primary-button" type="button">재작성</button></div></dialog>
+  <div id="error-message" class="error-message" role="alert" hidden></div>
+</body>
+</html>

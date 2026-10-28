@@ -1,0 +1,42 @@
+# Operational records, local preferences and temporary inputs
+/운영자료/
+/버전보관/
+/local-web/settings.json
+/local-web/drafts.json
+/local-web/server.json
+/local-web/logs/
+*.xlsx
+!/송도_HMI.xlsx
+*.xls
+*.csv
+*.tsv
+*.pdf
+~$*
+
+# Built applications and snapshots
+*.exe
+*.zip
+*.sha256
+*.spec
+build/
+dist/
+
+# Python, editor and OS caches
+__pycache__/
+*.py[cod]
+*.tmp
+*.log
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Credentials
+.env
+.env.*
+!.env.example
