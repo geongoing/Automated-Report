@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 from report import Book, MANUAL, CARRY, ReportError, generate_with_values, prepare
 from hmi import render_hmi, hmi_record_date, editable_fields, STATUS_CELLS, DATE_CELLS
 from folder_picker import choose_folder
+import updater
 from runtime import ROOT, RESOURCES, DATA, FROZEN, SERVER_INFO, HMI_TEMPLATE, FOLDER_KEYS, write_json, same_profile, prepare_workspace
 
 APP = RESOURCES
@@ -32,6 +33,9 @@ MAX_REQUEST = 32 * 1024 * 1024
 SAVE_LOCK = threading.Lock()
 PICK_LOCK = threading.Lock()
 DRAFT_LOCK = threading.Lock()
+JOB_LOCK = threading.Lock()
+ACTIVE_JOBS = 0
+SHUTTING_DOWN = False
 DRAFTS = DATA / "drafts.json"
 
 
@@ -158,6 +162,7 @@ def settings():
             "output_folder": str(folders["final_folder"]) if folders["final_folder"] else "", "hmi_template": str(HMI_TEMPLATE),
             "hmi_available": HMI_TEMPLATE.is_file(), "hmi_template_label": "프로그램 내장 양식" if FROZEN else str(HMI_TEMPLATE),
             "draft_scope": str(DATA), "version": APP_VERSION,
+            "update": updater.update_status(APP_VERSION),
             "execution_mode": "exe" if FROZEN else "python"}
 
 
@@ -450,6 +455,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, {"error": "로컬 주소에서만 사용할 수 있습니다."})
         if path == "/api/status":
             return self.reply(200, {"app": "SongdoLocal", "workspace": str(ROOT), "profile": str(DATA), "running": True, "version": APP_VERSION,
+                                    "busy": ACTIVE_JOBS > 0, "executable": str(Path(sys.executable).resolve()),
                                     "execution_mode": "exe" if FROZEN else "python", "port": self.server.server_port})
         if path == "/api/settings":
             try:
@@ -509,10 +515,26 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_POST(self):
+        global ACTIVE_JOBS
+        generating = self.path == "/api/generate" and self.local_request()
+        if generating:
+            with JOB_LOCK:
+                if SHUTTING_DOWN:
+                    return self.reply(409, {"error": "프로그램을 다시 시작하고 있습니다. 잠시 후 다시 실행해 주세요."})
+                ACTIVE_JOBS += 1
+        try:
+            self.process_post()
+        finally:
+            if generating:
+                with JOB_LOCK:
+                    ACTIVE_JOBS -= 1
+
+    def process_post(self):
+        global SHUTTING_DOWN
         try:
             if not self.local_request():
                 return self.reply(403, {"error": "로컬 웹 화면에서 실행해 주세요."})
-            if self.path not in ("/api/settings", "/api/select-folder", "/api/inspect", "/api/preview", "/api/generate", "/api/hmi/profile", "/api/shutdown", "/api/draft"):
+            if self.path not in ("/api/settings", "/api/select-folder", "/api/update/check", "/api/inspect", "/api/preview", "/api/generate", "/api/hmi/profile", "/api/shutdown", "/api/draft"):
                 return self.reply(404, {"error": "요청을 찾을 수 없습니다."})
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= MAX_REQUEST:
@@ -525,6 +547,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/draft":
                 return self.reply(200, save_draft(body))
             if self.path == "/api/shutdown":
+                with JOB_LOCK:
+                    if ACTIVE_JOBS:
+                        return self.reply(409, {"error": "일지 생성 중입니다. 작업이 끝난 뒤 종료하거나 업데이트해 주세요."})
+                    SHUTTING_DOWN = True
                 self.reply(200, {"message": "서버를 종료했습니다. 이 창을 닫아도 됩니다."})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
@@ -532,6 +558,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, save_settings(body.get("raw_folder", body.get("report_folder")), body.get("final_folder"), body.get("hmi_folder")))
             if self.path == "/api/select-folder":
                 return self.reply(200, select_folder(body))
+            if self.path == "/api/update/check":
+                return self.reply(200, updater.check_updates(APP_VERSION))
             if self.path == "/api/hmi/profile":
                 return self.reply(200, hmi_profile(dt.date.fromisoformat(body.get("record_date", ""))))
             raw_data, raw_name = source(body.get("raw"))
@@ -608,7 +636,8 @@ def main(argv=None):
         raise SystemExit(1)
     url = f"http://127.0.0.1:{httpd.server_port}"
     try:
-        write_json(SERVER_INFO, {"profile": str(DATA), "workspace": str(ROOT), "port": httpd.server_port, "pid": os.getpid(), "version": APP_VERSION})
+        write_json(SERVER_INFO, {"profile": str(DATA), "workspace": str(ROOT), "port": httpd.server_port, "pid": os.getpid(), "version": APP_VERSION,
+                                 "executable": str(Path(sys.executable).resolve())})
         print(f"Songdo daily report: {url}\nSettings: {CONFIG}\nPress Ctrl+C to stop.", flush=True)
         if not args.no_browser:
             threading.Timer(0.6, lambda: webbrowser.open(url)).start()

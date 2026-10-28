@@ -175,6 +175,7 @@ async function loadFiles(initial = false, background = false) {
   } finally { state.scanning = false; updateButtons(); }
 }
 function showSettings(data) {
+  showUpdate(data.update);
   $('app-version').textContent=data.version ? 'v'+data.version : '';
   state.draftScope=data.draft_scope || location.origin;
   state.configured=Boolean(data.configured);
@@ -196,6 +197,20 @@ function showSettings(data) {
   state.hmiAvailable = data.hmi_available;
   $('hmi-template-info').textContent = data.hmi_available ? `HMI 양식: ${data.hmi_template_label || data.hmi_template}` : 'HMI 양식을 찾을 수 없습니다.';
 }
+function showUpdate(update) {
+  if (!update) return;
+  $('update-version').textContent='v'+update.current_version;
+  $('update-message').textContent=update.message;
+  $('update-notes').href=update.release_url;
+}
+$('update-check').addEventListener('click',async()=>{
+  if (state.stopped || state.busy || state.checkingUpdate) return;
+  state.checkingUpdate=true; $('update-check').disabled=true;
+  $('update-message').textContent='새 정식 버전을 확인하고 있습니다…';
+  try { showUpdate(await api('/api/update/check',{})); }
+  catch { $('update-message').textContent='업데이트를 확인하지 못했습니다. 현재 버전으로 계속 사용할 수 있습니다.'; }
+  finally { state.checkingUpdate=false; $('update-check').disabled=state.stopped || state.busy; }
+});
 function suggestPrevious(rawId) {
   $('previous-select').value = '';
   const raw = state.files.find(f => f.id === rawId);
