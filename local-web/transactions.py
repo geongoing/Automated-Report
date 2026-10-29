@@ -10,6 +10,7 @@ import uuid
 from maintenance import is_link
 from persistence import atomic_bytes, sync_directory, write_json
 from runtime import DATA
+from report_names import hmi_stems
 
 PENDING = DATA / "pending-writes"
 _ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -63,10 +64,10 @@ def load_journal(folder):
     items = journal["outputs"]
     if not isinstance(items, list) or [item.get("kind") for item in items] != ["report", "hmi"]:
         raise ValueError("복구할 일지 쌍을 확인할 수 없습니다.")
-    stems = [(date + dt.timedelta(days=1)).strftime("%Y%m%d"), f"송도지소_하수_{date:%Y%m%d}"]
-    for item, stem in zip(items, stems):
+    stems = [((date + dt.timedelta(days=1)).strftime("%Y%m%d"),), hmi_stems(date)]
+    for item, accepted_stems in zip(items, stems):
         if (not isinstance(item.get("folder"), str) or not Path(item["folder"]).is_absolute() or
-                not isinstance(item.get("name"), str) or not re.fullmatch(re.escape(stem) + r"(?:_\d+)?\.xlsx", item["name"]) or
+                not isinstance(item.get("name"), str) or not any(re.fullmatch(re.escape(stem) + r"(?:_\d+)?\.xlsx", item["name"]) for stem in accepted_stems) or
                 not isinstance(item.get("sha256"), str) or not _SHA.fullmatch(item["sha256"]) or
                 type(item.get("size")) is not int or not 0 < item["size"] <= 30 * 1024 * 1024):
             raise ValueError("복구 대상 경로 또는 검증값이 올바르지 않습니다.")

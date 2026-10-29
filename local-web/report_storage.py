@@ -9,6 +9,7 @@ from app_settings import configured_folder, folder_config
 from report import ReportError
 from report_files import file_metadata, hmi_metadata
 from runtime import same_path
+from report_names import hmi_stems
 SAVE_LOCK = threading.RLock()
 RECOVERY_ERRORS = {}
 
@@ -50,8 +51,7 @@ def destination_folders():
 def existing_outputs(record_date, *, folders=None):
     date = dt.date.fromisoformat(record_date)
     folders = destination_folders() if folders is None else folders
-    stems = {"report": (date + dt.timedelta(days=1)).strftime("%Y%m%d"),
-             "hmi": f"송도지소_하수_{date:%Y%m%d}"}
+    stems = {"report": ((date + dt.timedelta(days=1)).strftime("%Y%m%d"),), "hmi": hmi_stems(date)}
     found = []
     for kind, folder in folders.items():
         for path in folder.glob("*.xlsx"):
@@ -63,8 +63,7 @@ def existing_outputs(record_date, *, folders=None):
                 matches = meta["kind"] == "final" and meta["record_date"] == record_date
             else:
                 matches = hmi_metadata(str(path), stat.st_mtime_ns, stat.st_size, record_date) == record_date
-            suffix = path.stem.removeprefix(stems[kind] + "_")
-            expected_name = path.stem == stems[kind] or (path.stem.startswith(stems[kind] + "_") and suffix.isdigit())
+            expected_name = any(path.stem == stem or (path.stem.startswith(stem + "_") and path.stem[len(stem) + 1:].isdigit()) for stem in stems[kind])
             if matches or expected_name:
                 found.append({**output_info(path, kind), "modified_ns": stat.st_mtime_ns, "size": stat.st_size})
     found.sort(key=lambda item: (-item["modified_ns"], item["kind"], item["name"]))

@@ -31,6 +31,16 @@
             <label class="field" for="F42"><span>시상수 금일지침</span><div class="input-wrap"><input id="F42" name="F42" inputmode="decimal" type="number" min="0" step="any" required placeholder="0"><span>㎥</span></div></label>
           </div>
           <div class="numeric-help"><span id="water-hint">시상수 전일지침 확인 중</span></div>
+          <div class="water-quality-grid">
+            <div class="water-quality-group"><h2>유입수</h2><div class="quality-fields">
+              <label>pH<input id="inlet_ph" type="number" min="0" max="14" step="any" placeholder="0" required aria-label="유입수 pH"></label>
+              <label>수온 <span>℃</span><input id="inlet_temperature" type="number" step="any" placeholder="0" required aria-label="유입수 수온"></label>
+            </div></div>
+            <div class="water-quality-group"><h2>방류수</h2><div class="quality-fields">
+              <label>pH<input id="outlet_ph" type="number" min="0" max="14" step="any" placeholder="0" required aria-label="방류수 pH"></label>
+              <label>수온 <span>℃</span><input id="outlet_temperature" type="number" step="any" placeholder="0" required aria-label="방류수 수온"></label>
+            </div></div>
+          </div>
           <div id="hmi-editor">
             <div class="staff-grid">
               <div><div class="field-heading"><label>당직 근무자</label></div><div id="night-worker-fields" class="worker-grid night-worker-grid"></div></div>

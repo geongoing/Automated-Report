@@ -1,5 +1,8 @@
 const $ = id => document.getElementById(id);
 const inputCells = ['B32', 'G32', 'D37', 'E37', 'F37', 'F42'];
+const qualityCells = ['inlet_ph','inlet_temperature','outlet_ph','outlet_temperature'];
+const allManualCells = [...inputCells, ...qualityCells];
+const qualityInput = () => Object.fromEntries(qualityCells.map(id=>[id,$(id).value]));
 function hmiDateLabel(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
   const date = new Date(value + 'T00:00:00Z');
@@ -32,7 +35,8 @@ function cachedDraft(date) {
         !Array.isArray(draft.day_workers) || draft.day_workers.length !== 8 ||
         !Array.isArray(draft.night_workers) || draft.night_workers.length !== 2 ||
         ![...draft.day_workers,...draft.night_workers].every(name=>typeof name==='string') ||
-        !draft.hmi_fields || typeof draft.hmi_fields !== 'object') continue;
+        !draft.hmi_fields || typeof draft.hmi_fields !== 'object' ||
+        (draft.water_quality && !qualityCells.every(key=>typeof draft.water_quality[key]==='string'))) continue;
     if (!latest || draft.updated_at>latest.updated_at) latest=draft;
    }
    return latest;
@@ -49,7 +53,7 @@ function queueDraft() {
     values:Object.fromEntries(inputCells.map(cell=>[cell,$(cell).value])),
     day_workers:Array.from(document.querySelectorAll('#day-worker-fields input')).map(input=>input.value),
     night_workers:Array.from(document.querySelectorAll('#night-worker-fields input')).map(input=>input.value),
-    hmi_fields:{...state.hmiEdits}, hmi_folder:state.hmiFolder || ''};
+    water_quality:qualityInput(), hmi_fields:{...state.hmiEdits}, hmi_folder:state.hmiFolder || ''};
   cacheDraft(draft);
   pendingDrafts.set(draft.record_date,draft);
   draftStatus('임시 저장 중…');
@@ -97,6 +101,7 @@ async function restoreDraft(date, revision) {
   if (!draft) { draftStatus(failed ? '임시 저장 확인 실패' : ''); return; }
   state.draftStamp=Math.max(state.draftStamp,draft.updated_at);
   for (const cell of inputCells) $(cell).value=draft.values[cell];
+  for (const cell of qualityCells) $(cell).value=draft.water_quality?.[cell] || '';
   document.querySelectorAll('#day-worker-fields input').forEach((input,i)=>input.value=draft.day_workers[i]);
   document.querySelectorAll('#night-worker-fields input').forEach((input,i)=>input.value=draft.night_workers[i]);
   if (draft.hmi_folder===state.hmiFolder) {
@@ -136,7 +141,7 @@ function updateButtons() {
   $('preview-button').disabled = locked || !state.inspected || count !== inputCells.length;
   const workersReady = !state.hmiLoading && hmiWorkersValid();
   const hmiDate = state.hmiProfile?.record_date;
-  $('generate-button').disabled = locked || !state.inspected || count !== inputCells.length || !state.hmiAvailable || !workersReady || hmiDate !== state.inspected?.record_date;
+  $('generate-button').disabled = locked || !state.inspected || count !== inputCells.length || !state.hmiAvailable || !workersReady || !qualityCells.every(id=>$(id).value.trim()!=='' && $(id).validity.valid) || hmiDate !== state.inspected?.record_date;
   if (!state.busy) $('generate-button').textContent = state.existing?.outputs?.length ? '재작성 →' : state.preview?.warnings?.length ? '확인한 값으로 생성 →' : '일지 생성 →';
   document.querySelectorAll('#report-form input,#report-form select').forEach(control=>control.disabled=state.busy || state.draftLoading || state.hmiLoading || !state.inspected);
 }
@@ -164,7 +169,7 @@ async function loadFiles(initial = false, background = false) {
   const old = { raw: $('raw-select').value, previous: $('previous-select').value };
   const oldSignature = JSON.stringify(state.files.filter(f => f.id === old.raw || f.id === old.previous));
   const data = await api('/api/files' + (state.dutyManual && state.targetDate ? '?date='+encodeURIComponent(state.targetDate) : ''));
-  if (background && (state.busy || state.hmiDirty || dayWorkers().length || nightWorkers().some(Boolean) || inputCells.some(id => $(id).value !== ''))) return false;
+  if (background && (state.busy || state.hmiDirty || dayWorkers().length || nightWorkers().some(Boolean) || allManualCells.some(id => $(id).value !== ''))) return false;
   const folderChanged = state.folder !== settingsKey(data);
   const reportFolderChanged = state.reportFolders !== JSON.stringify([data.raw_folder, data.final_folder]);
   const dutyChanged = state.targetDate !== data.duty.record_date;
@@ -186,7 +191,7 @@ async function loadFiles(initial = false, background = false) {
   }
   suggestPrevious($('raw-select').value);
   const changed = folderChanged || dutyChanged || old.raw !== $('raw-select').value || old.previous !== $('previous-select').value || oldSignature !== JSON.stringify(state.files.filter(f => f.id === $('raw-select').value || f.id === $('previous-select').value));
-  if (reportFolderChanged || dutyChanged || old.raw !== $('raw-select').value) { for (const id of inputCells) $(id).value = ''; }
+  if (reportFolderChanged || dutyChanged || old.raw !== $('raw-select').value) { for (const id of allManualCells) $(id).value = ''; }
   if (changed) { ++state.fileRevision; ++state.revision; clearInspect(); }
   updateButtons();
   return changed;
@@ -371,7 +376,7 @@ $('duty-date').addEventListener('change', async () => {
   queueDraft(); state.draftLoading=true; updateButtons(); await flushDrafts();
   state.targetDate = date; state.dutyManual = true; state.followingLatest = true;
   ++state.fileRevision; ++state.revision; clearInspect();
-  for (const id of inputCells) $(id).value = '';
+  for (const id of allManualCells) $(id).value = '';
   document.querySelectorAll('#day-worker-fields input,#night-worker-fields input').forEach(input=>input.value='');
   state.hmiProfile=null; state.hmiEdits={}; state.hmiDirty=false;
   document.querySelectorAll('#hmi-carry-body input,#hmi-carry-body select').forEach(input=>{input.value='';refreshHmiDate(input);});
@@ -387,7 +392,7 @@ $('duty-date').addEventListener('click',()=>{
 });
 $('raw-select').addEventListener('change', async () => {
   state.followingLatest = false;
-  for (const id of inputCells) $(id).value = '';
+  for (const id of allManualCells) $(id).value = '';
   suggestPrevious($('raw-select').value); await inspectFiles();
 });
 for (const id of inputCells) $(id).addEventListener('input', () => { ++state.revision; invalidatePreview(); queueDraft(); });
@@ -447,7 +452,7 @@ function hmiWorkersValid() { const names = nightWorkers(); return names.length =
 const hmiEditableCells = [...'CDEFGHIJ'].flatMap(c => [`${c}28`,`${c}32`,`${c}33`,`${c}34`]);
 function hmiInput() {
   const fields = Object.fromEntries(hmiEditableCells.map(c => [c, $(`hmi-${c}`).value]));
-  return { record_date: state.hmiProfile?.record_date, seed_token: state.hmiProfile?.seed_token,
+  return { water_quality: qualityInput(), record_date: state.hmiProfile?.record_date, seed_token: state.hmiProfile?.seed_token,
            day_workers: dayWorkers(), night_workers: nightWorkers(), fields };
 }
 function hmiEdited(event) {
@@ -460,6 +465,7 @@ function hmiEdited(event) {
   }
   updateButtons(); queueDraft();
 }
+for (const id of qualityCells) $(id).addEventListener('input', hmiEdited);
 function buildHmiEditor() {
   for (const [target,count,label] of [['night-worker-fields',2,'당직'],['day-worker-fields',8,'일근']]) {
     for (let i=1;i<=count;i++) {
@@ -619,7 +625,7 @@ window.addEventListener('pagehide',flushDraftBeacons);
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) flushDrafts(); });
 setInterval(async () => {
   if (!state.stopped && !state.busy && state.tab === 'settings' && !document.hidden) await refreshRecovery();
-  if (!state.configured || state.stopped || state.busy || state.scanning || state.savingSettings || state.tab === 'settings' || state.hmiDirty || dayWorkers().length || nightWorkers().some(Boolean) || document.hidden || inputCells.some(id => $(id).value !== '')) return;
+  if (!state.configured || state.stopped || state.busy || state.scanning || state.savingSettings || state.tab === 'settings' || state.hmiDirty || dayWorkers().length || nightWorkers().some(Boolean) || document.hidden || allManualCells.some(id => $(id).value !== '')) return;
   try { if (await loadFiles(state.followingLatest, true)) await inspectFiles(); }
   catch (e) { ++state.fileRevision; ++state.revision; clearInspect(); $('file-status').textContent = e.message; }
 }, 30000);

@@ -6,7 +6,8 @@ import datetime as dt
 import re
 import zipfile
 import xml.etree.ElementTree as ET
-from decimal import Decimal
+from decimal import Decimal, DecimalException, InvalidOperation
+from report_names import hmi_filename
 
 from report import Book, NS, ReportError, patch_cell, excel_round
 
@@ -57,6 +58,38 @@ STATUS_CELLS = [f"{c}28" for c in "CDEFGHIJ"]
 DATE_CELLS = [f"{c}{r}" for c in "CDEFGHIJ" for r in (32, 33, 34)]
 EDITABLE_CELLS = STATUS_CELLS + DATE_CELLS + ["H52"]
 OTHER_CARRY_CELLS = [f"{c}26" for c in "CDEFGHIJ"] + [f"G{r}" for r in range(40, 46)]
+WATER_QUALITY_KEYS = ('inlet_ph', 'inlet_temperature', 'outlet_ph', 'outlet_temperature')
+
+
+def validate_water_quality(data):
+    labels = dict(zip(WATER_QUALITY_KEYS, ('유입수 pH', '유입수 수온', '방류수 pH', '방류수 수온')))
+    if not isinstance(data, dict) or set(data) != set(labels):
+        raise ReportError('유입수·방류수의 pH와 수온 4개를 입력해 주세요.')
+    result = {}
+    for key, label in labels.items():
+        raw = data[key]
+        try:
+            if not isinstance(raw, str) or not raw.strip() or len(raw) > 30:
+                raise InvalidOperation
+            value = Decimal(raw.strip())
+            if not value.is_finite() or abs(value) > 1000000 or ('ph' in key and not 0 <= value <= 14):
+                raise InvalidOperation
+            result[key] = raw.strip()
+        except (DecimalException, ValueError):
+            raise ReportError(f'{label}: 유효한 숫자를 입력해 주세요.' + (' pH는 0~14입니다.' if 'ph' in key else '')) from None
+    return result
+
+
+def compose_h52(previous_text, quality):
+    """Replace only the two measurement rows, preserving other work notes."""
+    text = previous_text or '○ 소내 순찰 및 점검\n○ 유입수 및 방류수 시료 채수'
+    numeric = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+    for label, prefix in (('유입수', 'inlet'), ('방류수', 'outlet')):
+        pattern = re.compile(r'(' + label + r'\s*pH\s*[:：]\s*)' + numeric + r'(\s+수온\s*[:：]\s*)' + numeric, re.IGNORECASE)
+        text, count = pattern.subn(lambda match: match[1] + quality[prefix + '_ph'] + match[2] + quality[prefix + '_temperature'], text)
+        if not count:
+            text = text.rstrip() + f"\n  - {label} pH: {quality[prefix + '_ph']}   수온: {quality[prefix + '_temperature']}℃"
+    return text
 
 
 def hmi_record_date(book, *, reference_date=None):
@@ -121,7 +154,8 @@ def validate_hmi_input(data, record_date):
                 dt.date.fromisoformat(value)
             except ValueError:
                 raise ReportError(f"HMI {cell} 세정일자를 YYYY-MM-DD 형식으로 입력해 주세요.") from None
-    return {"day_workers": [n.strip() for n in day], "night_workers": [n.strip() for n in night], "fields": fields}
+    return {"day_workers": [n.strip() for n in day], "night_workers": [n.strip() for n in night], "fields": fields,
+            "water_quality": validate_water_quality(data.get('water_quality'))}
 
 
 def numeric_styles(xml, styles, include_dates=False):
@@ -197,6 +231,7 @@ def render_hmi(final, template_data, *, previous_data=None, user_input=None):
         staff = validate_hmi_input(user_input, final.date)
         fields = editable_fields(previous_data)
         fields.update(staff["fields"])
+        fields['H52'] = compose_h52(fields.get('H52'), staff['water_quality'])
         if previous_data is not None:
             previous = Book(previous_data, "전날 HMI.xlsx", require_report=False)
             if hmi_record_date(previous, reference_date=final.date - dt.timedelta(days=1)) != final.date - dt.timedelta(days=1):
@@ -220,7 +255,7 @@ def render_hmi(final, template_data, *, previous_data=None, user_input=None):
         for entry in template.zip.infolist():
             content = xml.encode("utf-8") if entry.filename == sheet_path else styles.encode("utf-8") if entry.filename == "xl/styles.xml" else template.zip.read(entry.filename)
             dest.writestr(entry, content)
-    return out.getvalue(), {"output_name": "송도지소_하수_" + final.date.strftime("%Y%m%d") + ".xlsx",
+    return out.getvalue(), {"output_name": hmi_filename(final.date),
                             "record_date": final.date.isoformat(), "mapped_count": len(mapped) + 1,
                             "mapping": mapped, "manual_sections": MANUAL_SECTIONS,
                             "day_count": len(staff["day_workers"]) if staff else None,

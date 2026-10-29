@@ -50,3 +50,5 @@ def replace_parts(data, replacements):
 
 TODAY=dt.date(2026,10,26)
 INPUTS={"B32":"2","G32":"0","D37":"10","E37":"20","F37":"30","F42":"1100"}
+
+WATER_QUALITY={"inlet_ph":"6.8","inlet_temperature":"27.2","outlet_ph":"7.20","outlet_temperature":"26.8"}

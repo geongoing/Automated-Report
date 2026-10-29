@@ -124,3 +124,17 @@ test('HMI dates show Korean weekdays and preserve ISO values without timezone dr
   }
   for (const value of ['', '2026-02-29', '2026-10-32', 'bad', '2026-1-1']) assert.equal(label(value), '');
 });
+
+
+test('daily pH and temperatures are included in autosave with blank and zero preserved', async () => {
+  const h = harness();
+  h.element('inlet_ph').value = '';
+  h.element('inlet_temperature').value = '27.2';
+  h.element('outlet_ph').value = '0';
+  h.element('outlet_temperature').value = '26.8';
+  h.draft.queueDraft();
+  await h.draft.flushDrafts();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0].draft.water_quality)), {
+    inlet_ph:'', inlet_temperature:'27.2', outlet_ph:'0', outlet_temperature:'26.8'
+  });
+});

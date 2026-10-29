@@ -62,6 +62,16 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(tx.recover_pending())
         self.assertEqual(self.report.stat().st_mtime_ns, stamp)
 
+    def test_new_hmi_filename_recovers_with_the_same_schema_as_legacy_records(self):
+        self.hmi = self.hmi.parent / '송도_HMI 중앙제어실 _운영일지(10.26).xlsx'
+        self.interrupt_after_report()
+        stamp = self.report.stat().st_mtime_ns
+        self.assertFalse(tx.recover_pending())
+        self.assert_complete()
+        self.assertEqual(self.report.stat().st_mtime_ns, stamp)
+        self.assertFalse(tx.recover_pending())
+        self.assertEqual(self.report.stat().st_mtime_ns, stamp)
+
     def test_partial_staging_file_is_replaced_without_exposing_a_partial_workbook(self):
         publish = tx.publish_output
         def partial(folder, journal, item):

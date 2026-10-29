@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
-from fixtures import INPUTS,TODAY,make_report,pe_bytes,replace_parts
+from fixtures import INPUTS,WATER_QUALITY,TODAY,make_report,pe_bytes,replace_parts
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'local-web'))
 from report import Book, patch_cell
@@ -96,8 +96,11 @@ def main():
             legacy_path.write_bytes(legacy_data)
             previous_hmi=api('/api/hmi/profile',{'record_date':TODAY.isoformat()})
             assert previous_hmi['previous_name']==legacy_path.name and previous_hmi['fields']['C28']=='정지'
-            body['hmi']={**previous_hmi,'day_workers':[],'night_workers':['test1','test2']}
+            body['hmi']={**previous_hmi,'day_workers':[],'night_workers':['test1','test2'],'water_quality':WATER_QUALITY}
             generated=api('/api/generate',body)
+            assert generated['outputs'][1]['name']==f'송도_HMI 중앙제어실 _운영일지({TODAY:%m.%d}).xlsx'
+            measured=Book(Path(generated['outputs'][1]['path']).read_bytes(),'hmi.xlsx',require_report=False).cell('H52',HMI_SHEET)
+            assert 'pH: 6.8' in measured and 'pH: 7.20' in measured and '수온: 27.2' in measured and '수온: 26.8' in measured
             assert Book(Path(generated['outputs'][1]['path']).read_bytes(),'hmi.xlsx',require_report=False).cell('C28',HMI_SHEET)=='정지'
             assert legacy_path.read_bytes()==legacy_data
             assert len(generated['outputs'])==2
@@ -111,7 +114,7 @@ def main():
             assert all(Path(item['path']).stem.endswith('_2') for item in result['outputs'])
             for path,digest in original_hashes.items():assert hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest
             draft={'record_date':TODAY.isoformat(),'updated_at':int(time.time()*1000),'values':INPUTS,
-                   'day_workers':['','','','','','','',''],'night_workers':['test1','test2'],'hmi_fields':{},'hmi_folder':str(hmi)}
+                   'day_workers':['','','','','','','',''],'night_workers':['test1','test2'],'hmi_fields':{},'water_quality':WATER_QUALITY,'hmi_folder':str(hmi)}
             api('/api/draft',draft)
             protected={path:path.read_bytes() for path in (profile/'settings.json',profile/'drafts.json')}
             assert list((profile/'backups/settings').glob('good-*.json'))
@@ -142,7 +145,7 @@ tx.publish_output=abrupt
 tx.commit_pair(Path(sys.argv[3]).read_bytes(),Path(sys.argv[4]),Path(sys.argv[5]).read_bytes(),Path(sys.argv[6]),sys.argv[7])
 '''
             recovered_report=final/f'{TODAY+dt.timedelta(days=1):%Y%m%d}_3.xlsx'
-            recovered_hmi=hmi/f'송도지소_하수_{TODAY:%Y%m%d}_3.xlsx'
+            recovered_hmi=hmi/f'송도_HMI 중앙제어실 _운영일지({TODAY:%m.%d})_3.xlsx'
             crash=subprocess.run([sys.executable,'-B','-c',crash_script,str(Path(__file__).resolve().parents[1]/'local-web'),str(profile),
                                   generated['outputs'][0]['path'],str(recovered_report),generated['outputs'][1]['path'],str(recovered_hmi),TODAY.isoformat()],
                                   env=environment,timeout=30,creationflags=flags)

@@ -14,7 +14,7 @@ sys.path.insert(0,str(ROOT/'local-web'))
 import server
 from report import Book,ReportError,generate_with_values,excel_round,patch_cell
 from hmi import HMI_SHEET,render_hmi,CELL_MAP,CELL_DIGITS,DAY_CELLS,NIGHT_CELLS,OTHER_CARRY_CELLS,date_text
-from fixtures import make_report,replace_parts,TODAY,INPUTS
+from fixtures import make_report,replace_parts,TODAY,INPUTS,WATER_QUALITY
 
 
 class ReportTests(unittest.TestCase):
@@ -99,7 +99,7 @@ class ReportTests(unittest.TestCase):
                 self.assertEqual(summary['previous_date'], (date - dt.timedelta(days=1)).isoformat())
                 self.assertEqual(Book(data, 'final.xlsx').numeric('A32'), 6)
                 _, result = render_hmi(values, (ROOT / '송도_HMI.xlsx').read_bytes())
-                self.assertEqual(result['output_name'], date.strftime('송도지소_하수_%Y%m%d.xlsx'))
+                self.assertEqual(result['output_name'], date.strftime('송도_HMI 중앙제어실 _운영일지(%m.%d).xlsx'))
                 with self.assertRaises(ReportError):
                     generate_with_values(raw, make_report(date - dt.timedelta(days=2), True), 'raw.xlsx', 'wrong.xlsx', INPUTS)
 
@@ -111,7 +111,7 @@ class ReportTests(unittest.TestCase):
         template_1904 = replace_parts(template, {'xl/workbook.xml': book.workbook_xml.decode().replace('<workbookPr ', '<workbookPr date1904="1" ')})
         _, _, previous_values = generate_with_values(make_report(yesterday), make_report(yesterday - dt.timedelta(days=1), True), 'raw.xlsx', 'previous.xlsx', INPUTS)
         previous, _ = render_hmi(previous_values, template_1904, user_input={
-            'record_date': yesterday.isoformat(), 'day_workers': ['old-day'], 'night_workers': ['old1', 'old2'],
+            'record_date': yesterday.isoformat(), 'day_workers': ['old-day'], 'night_workers': ['old1', 'old2'], 'water_quality': WATER_QUALITY,
             'fields': {'C32': '2028-02-29', 'C28': '가동', 'H52': '이월 테스트'}})
         previous_book = Book(previous, 'previous-hmi.xlsx', require_report=False)
         sheet = previous_book.sheets[HMI_SHEET]
@@ -121,11 +121,11 @@ class ReportTests(unittest.TestCase):
         previous = replace_parts(previous, {sheet: xml})
         _, _, values = generate_with_values(make_report(date), make_report(yesterday, True), 'raw.xlsx', 'previous.xlsx', INPUTS)
         data, _ = render_hmi(values, template, previous_data=previous, user_input={
-            'record_date': date.isoformat(), 'day_workers': [], 'night_workers': ['new1', 'new2'], 'fields': {}})
+            'record_date': date.isoformat(), 'day_workers': [], 'night_workers': ['new1', 'new2'], 'water_quality': WATER_QUALITY, 'fields': {}})
         output = Book(data, 'hmi.xlsx', require_report=False)
         self.assertEqual(date_text(output.cell('C32', HMI_SHEET), output), '2028-02-29')
         self.assertEqual(output.cell('C28', HMI_SHEET), '가동')
-        self.assertEqual(output.cell('H52', HMI_SHEET), '이월 테스트')
+        self.assertIn('이월 테스트', output.cell('H52', HMI_SHEET))
         for index, cell in enumerate(OTHER_CARRY_CELLS):
             self.assertEqual(output.numeric(cell, HMI_SHEET), Decimal(index + 100), cell)
         for cell in DAY_CELLS:
@@ -133,7 +133,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual([output.cell(cell, HMI_SHEET) for cell in NIGHT_CELLS], ['new1', 'new2'])
         with self.assertRaisesRegex(ReportError, '하루 전'):
             render_hmi(values, template, previous_data=data, user_input={
-                'record_date': date.isoformat(), 'day_workers': [], 'night_workers': ['new1', 'new2'], 'fields': {}})
+                'record_date': date.isoformat(), 'day_workers': [], 'night_workers': ['new1', 'new2'], 'water_quality': WATER_QUALITY, 'fields': {}})
 
     def test_malformed_cells_raise_a_readable_report_error(self):
         raw = make_report(TODAY)
@@ -153,7 +153,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(final.numeric('G32'),0);self.assertEqual(final.numeric('A32'),6)
         self.assertEqual(final.numeric('D20'),77);self.assertEqual(final.numeric('F43'),100)
         self.assertIn(b'<f>B32+C32+D32-C33-D33</f>',final.zip.read(final.sheets['운영일지']))
-        hmi,result=render_hmi(values,(ROOT/'송도_HMI.xlsx').read_bytes(),user_input={'record_date':TODAY.isoformat(),'day_workers':[],'night_workers':['test1','test2'],'fields':{}})
+        hmi,result=render_hmi(values,(ROOT/'송도_HMI.xlsx').read_bytes(),user_input={'record_date':TODAY.isoformat(),'day_workers':[],'night_workers':['test1','test2'],'water_quality':WATER_QUALITY,'fields':{}})
         hmi=Book(hmi,'hmi.xlsx',require_report=False)
         self.assertEqual(hmi.numeric('H48',HMI_SHEET),0)
         self.assertEqual(hmi.numeric('B48',HMI_SHEET),6)

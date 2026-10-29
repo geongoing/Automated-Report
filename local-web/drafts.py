@@ -1,7 +1,7 @@
 """Date-scoped manual-input persistence, independent of HTTP handlers."""
 import datetime as dt
 import threading
-from hmi import STATUS_CELLS, DATE_CELLS
+from hmi import STATUS_CELLS, DATE_CELLS, WATER_QUALITY_KEYS
 from report import MANUAL, ReportError
 from runtime import DATA
 from persistence import read_backed_json, write_backed_json
@@ -41,10 +41,15 @@ def validate_draft(data):
         if cell in DATE_CELLS and value:
             draft_date(value)
     folder = data.get("hmi_folder")
+    quality = data.get('water_quality')
+    if quality is not None and (not isinstance(quality, dict) or set(quality) != set(WATER_QUALITY_KEYS) or
+                               any(not isinstance(value, str) or len(value) > 100 for value in quality.values())):
+        raise ReportError('임시 저장할 pH·수온 입력이 올바르지 않습니다.')
     stamp = data.get("updated_at")
     if not isinstance(folder, str) or len(folder) > 4096 or type(stamp) is not int or not 0 < stamp < 2**53:
         raise ReportError("임시 저장 정보가 올바르지 않습니다.")
-    return {"record_date": date, "values": dict(values), "day_workers": list(data["day_workers"]),
+    return {**({'water_quality': dict(quality)} if quality is not None else {}),
+            "record_date": date, "values": dict(values), "day_workers": list(data["day_workers"]),
             "night_workers": list(data["night_workers"]), "hmi_fields": dict(fields),
             "hmi_folder": folder, "updated_at": stamp}
 

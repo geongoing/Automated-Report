@@ -15,7 +15,7 @@ import report_storage as storage
 import transactions
 from report import Book, ReportError, generate_with_values, patch_cell
 from hmi import HMI_SHEET, render_hmi
-from fixtures import TODAY, INPUTS, make_report, replace_parts
+from fixtures import TODAY, INPUTS, WATER_QUALITY, make_report, replace_parts
 
 
 class ServiceTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class ServiceTests(unittest.TestCase):
     def outputs(self):
         report, summary, values = generate_with_values(self.raw_data, self.previous, 'raw.xlsx', 'previous.xlsx', INPUTS)
         hmi, hmi_summary = render_hmi(values, (ROOT / '송도_HMI.xlsx').read_bytes(), user_input={
-            'record_date': TODAY.isoformat(), 'day_workers': [], 'night_workers': ['test1', 'test2'], 'fields': {}})
+            'record_date': TODAY.isoformat(), 'day_workers': [], 'night_workers': ['test1', 'test2'], 'water_quality': WATER_QUALITY, 'fields': {}})
         return report, summary['output_name'], hmi, hmi_summary['output_name']
 
     def test_settings_discovery_and_drafts_keep_existing_date_and_empty_slots(self):
@@ -66,6 +66,21 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(list(self.final.iterdir()), [self.final / '20261026.xlsx'])
         self.assertEqual((self.final / '20261026.xlsx').read_bytes(), self.previous)
         self.assertFalse(list(self.hmi.iterdir()))
+
+    def test_new_and_legacy_hmi_names_are_both_protected_from_duplicates(self):
+        names = ('송도_HMI 중앙제어실 _운영일지(10.26).xlsx', '송도지소_하수_20261026.xlsx')
+        for name in names: (self.hmi / name).write_bytes(b'preserve even an unreadable existing workbook')
+        existing = storage.existing_outputs(TODAY.isoformat())
+        self.assertEqual({item['name'] for item in existing['outputs']}, set(names))
+
+    def test_draft_quality_keeps_blank_and_zero_without_changing_legacy_drafts(self):
+        data = {'record_date': TODAY.isoformat(), 'updated_at': 200, 'values': INPUTS,
+                'day_workers': [''] * 8, 'night_workers': ['', ''], 'hmi_fields': {}, 'hmi_folder': str(self.hmi)}
+        drafts.save_draft(data)
+        self.assertNotIn('water_quality', drafts.get_draft(TODAY.isoformat())['draft'])
+        quality = {**WATER_QUALITY, 'inlet_ph': '', 'outlet_ph': '0'}
+        drafts.save_draft({**data, 'updated_at': 201, 'water_quality': quality})
+        self.assertEqual(drafts.get_draft(TODAY.isoformat())['draft']['water_quality'], quality)
 
     def test_discovery_skips_corrupt_cells_and_uses_internal_dates_at_boundaries(self):
         template = (ROOT / '송도_HMI.xlsx').read_bytes()
@@ -115,7 +130,7 @@ class ServiceTests(unittest.TestCase):
                 self.assertIn(str(yesterday), profile['message'])
                 _, _, values = generate_with_values(make_report(date), make_report(yesterday, True), 'raw.xlsx', 'prev.xlsx', INPUTS)
                 output, _ = render_hmi(values, template, previous_data=data, user_input={
-                    **profile, 'day_workers': [], 'night_workers': ['test1', 'test2'], 'fields': {}})
+                    **profile, 'day_workers': [], 'night_workers': ['test1', 'test2'], 'water_quality': WATER_QUALITY, 'fields': {}})
                 self.assertEqual(Book(output, 'output.xlsx', require_report=False).cell('C28', HMI_SHEET), '정지')
                 existing = storage.existing_outputs(yesterday.isoformat())
                 self.assertIn(path.name, [item['name'] for item in existing['outputs']])
