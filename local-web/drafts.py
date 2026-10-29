@@ -42,13 +42,18 @@ def validate_draft(data):
             draft_date(value)
     folder = data.get("hmi_folder")
     quality = data.get('water_quality')
+    quality_edits = data.get('quality_edits')
     if quality is not None and (not isinstance(quality, dict) or set(quality) != set(WATER_QUALITY_KEYS) or
                                any(not isinstance(value, str) or len(value) > 100 for value in quality.values())):
         raise ReportError('임시 저장할 pH·수온 입력이 올바르지 않습니다.')
+    if quality_edits is not None and (not isinstance(quality_edits, dict) or set(quality_edits) - set(WATER_QUALITY_KEYS) or
+                                     any(not isinstance(value, str) or len(value) > 100 for value in quality_edits.values())):
+        raise ReportError('임시 저장할 pH·수온 수정 항목이 올바르지 않습니다.')
     stamp = data.get("updated_at")
     if not isinstance(folder, str) or len(folder) > 4096 or type(stamp) is not int or not 0 < stamp < 2**53:
         raise ReportError("임시 저장 정보가 올바르지 않습니다.")
     return {**({'water_quality': dict(quality)} if quality is not None else {}),
+            **({'quality_edits': dict(quality_edits)} if quality_edits is not None else {}),
             "record_date": date, "values": dict(values), "day_workers": list(data["day_workers"]),
             "night_workers": list(data["night_workers"]), "hmi_fields": dict(fields),
             "hmi_folder": folder, "updated_at": stamp}

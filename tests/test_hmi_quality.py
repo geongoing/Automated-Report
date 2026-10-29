@@ -6,7 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'local-web'))
 from report import Book, ReportError, generate_with_values, patch_cell
-from hmi import HMI_SHEET, compose_h52, render_hmi, validate_water_quality, hmi_record_date
+from hmi import HMI_SHEET, compose_h52, render_hmi, validate_water_quality, hmi_record_date, extract_water_quality
 from fixtures import TODAY, INPUTS, WATER_QUALITY, make_report, replace_parts
 
 
@@ -19,9 +19,19 @@ class HmiQualityTests(unittest.TestCase):
 
     def test_all_four_measurements_are_required_and_invalid_ph_is_rejected(self):
         for data in (None, {}, {**WATER_QUALITY, 'inlet_ph': ''}, {**WATER_QUALITY, 'inlet_ph': '14.1'},
-                     {**WATER_QUALITY, 'outlet_temperature': 'NaN'}, {**WATER_QUALITY, 'outlet_temperature': '1e99999999'}):
+                     {**WATER_QUALITY, 'outlet_temperature': '-4'}, {**WATER_QUALITY, 'outlet_temperature': 'NaN'}, {**WATER_QUALITY, 'outlet_temperature': '1e99999999'}):
             with self.subTest(data=data), self.assertRaises(ReportError): validate_water_quality(data)
         self.assertEqual(validate_water_quality({key: '0' for key in WATER_QUALITY}), {key: '0' for key in WATER_QUALITY})
+
+    def test_previous_h52_measurements_are_extracted_without_rounding(self):
+        text = '○ 기존 문구\n - 유입수 pH: 6.15   수온: 20.3℃\n - 방류수 PH：7.05    수온：21.7℃'
+        self.assertEqual(extract_water_quality(text), {'inlet_ph':'6.15', 'inlet_temperature':'20.3',
+            'outlet_ph':'7.05', 'outlet_temperature':'21.7'})
+
+    def test_missing_or_invalid_source_measurements_never_become_zero(self):
+        self.assertEqual(extract_water_quality(None), {key:'' for key in WATER_QUALITY})
+        result = extract_water_quality('유입수 pH: 15 수온: -4℃\n방류수 pH: 0 수온: 0℃')
+        self.assertEqual(result, {'inlet_ph':'', 'inlet_temperature':'', 'outlet_ph':'0', 'outlet_temperature':'0'})
 
     def test_render_writes_h52_and_legacy_style_name_with_full_internal_date(self):
         template = (ROOT / '송도_HMI.xlsx').read_bytes()

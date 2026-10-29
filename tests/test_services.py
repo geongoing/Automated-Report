@@ -81,6 +81,8 @@ class ServiceTests(unittest.TestCase):
         quality = {**WATER_QUALITY, 'inlet_ph': '', 'outlet_ph': '0'}
         drafts.save_draft({**data, 'updated_at': 201, 'water_quality': quality})
         self.assertEqual(drafts.get_draft(TODAY.isoformat())['draft']['water_quality'], quality)
+        drafts.save_draft({**data, 'updated_at': 202, 'water_quality': quality, 'quality_edits': {'outlet_ph': ''}})
+        self.assertEqual(drafts.get_draft(TODAY.isoformat())['draft']['quality_edits'], {'outlet_ph': ''})
 
     def test_discovery_skips_corrupt_cells_and_uses_internal_dates_at_boundaries(self):
         template = (ROOT / '송도_HMI.xlsx').read_bytes()

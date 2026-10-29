@@ -91,11 +91,13 @@ def main():
             sheet=template_book.sheets[HMI_SHEET]
             legacy_xml=patch_cell(template_book.zip.read(sheet).decode(),'B8',(TODAY-dt.timedelta(days=1)).strftime('근무 일지(%m.%d)'))
             legacy_xml=patch_cell(legacy_xml,'C28','정지')
+            legacy_xml=patch_cell(legacy_xml,'H52','○ 테스트 메모\n - 유입수 pH: 6.15   수온: 20.3℃\n - 방류수 pH: 7.05   수온: 21.7℃')
             legacy_path=hmi/'legacy-previous.xlsx'
             legacy_data=replace_parts(template,{sheet:legacy_xml})
             legacy_path.write_bytes(legacy_data)
             previous_hmi=api('/api/hmi/profile',{'record_date':TODAY.isoformat()})
             assert previous_hmi['previous_name']==legacy_path.name and previous_hmi['fields']['C28']=='정지'
+            assert previous_hmi['water_quality']=={'inlet_ph':'6.15','inlet_temperature':'20.3','outlet_ph':'7.05','outlet_temperature':'21.7'}
             body['hmi']={**previous_hmi,'day_workers':[],'night_workers':['test1','test2'],'water_quality':WATER_QUALITY}
             generated=api('/api/generate',body)
             assert generated['outputs'][1]['name']==f'송도_HMI 중앙제어실 _운영일지({TODAY:%m.%d}).xlsx'

@@ -59,31 +59,45 @@ DATE_CELLS = [f"{c}{r}" for c in "CDEFGHIJ" for r in (32, 33, 34)]
 EDITABLE_CELLS = STATUS_CELLS + DATE_CELLS + ["H52"]
 OTHER_CARRY_CELLS = [f"{c}26" for c in "CDEFGHIJ"] + [f"G{r}" for r in range(40, 46)]
 WATER_QUALITY_KEYS = ('inlet_ph', 'inlet_temperature', 'outlet_ph', 'outlet_temperature')
+WATER_QUALITY_LABELS = dict(zip(WATER_QUALITY_KEYS, ('유입수 pH', '유입수 수온', '방류수 pH', '방류수 수온')))
+QUALITY_NUMBER = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+
+
+def water_quality_value(raw, key):
+    try:
+        if not isinstance(raw, str) or not raw.strip() or len(raw) > 30:
+            raise InvalidOperation
+        value = Decimal(raw.strip())
+        if not value.is_finite() or not 0 <= value <= 1000000 or ('ph' in key and value > 14):
+            raise InvalidOperation
+        return raw.strip()
+    except (DecimalException, ValueError):
+        raise ReportError(f'{WATER_QUALITY_LABELS[key]}: 유효한 숫자를 입력해 주세요.' + (' pH는 0~14입니다.' if 'ph' in key else ' 수온은 0 이상입니다.')) from None
 
 
 def validate_water_quality(data):
-    labels = dict(zip(WATER_QUALITY_KEYS, ('유입수 pH', '유입수 수온', '방류수 pH', '방류수 수온')))
-    if not isinstance(data, dict) or set(data) != set(labels):
+    if not isinstance(data, dict) or set(data) != set(WATER_QUALITY_KEYS):
         raise ReportError('유입수·방류수의 pH와 수온 4개를 입력해 주세요.')
-    result = {}
-    for key, label in labels.items():
-        raw = data[key]
-        try:
-            if not isinstance(raw, str) or not raw.strip() or len(raw) > 30:
-                raise InvalidOperation
-            value = Decimal(raw.strip())
-            if not value.is_finite() or abs(value) > 1000000 or ('ph' in key and not 0 <= value <= 14):
-                raise InvalidOperation
-            result[key] = raw.strip()
-        except (DecimalException, ValueError):
-            raise ReportError(f'{label}: 유효한 숫자를 입력해 주세요.' + (' pH는 0~14입니다.' if 'ph' in key else '')) from None
+    return {key: water_quality_value(data[key], key) for key in WATER_QUALITY_KEYS}
+
+
+def extract_water_quality(text):
+    result = dict.fromkeys(WATER_QUALITY_KEYS, '')
+    for label, prefix in (('유입수', 'inlet'), ('방류수', 'outlet')):
+        match = re.search(label + r'\s*pH\s*[:：]\s*(' + QUALITY_NUMBER + r')\s+수온\s*[:：]\s*(' + QUALITY_NUMBER + ')', text or '', re.IGNORECASE)
+        if match:
+            for key, value in ((prefix + '_ph', match[1]), (prefix + '_temperature', match[2])):
+                try:
+                    result[key] = water_quality_value(value, key)
+                except ReportError:
+                    pass  # Unreadable measurements stay blank, never become zero.
     return result
 
 
 def compose_h52(previous_text, quality):
     """Replace only the two measurement rows, preserving other work notes."""
     text = previous_text or '○ 소내 순찰 및 점검\n○ 유입수 및 방류수 시료 채수'
-    numeric = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+    numeric = QUALITY_NUMBER
     for label, prefix in (('유입수', 'inlet'), ('방류수', 'outlet')):
         pattern = re.compile(r'(' + label + r'\s*pH\s*[:：]\s*)' + numeric + r'(\s+수온\s*[:：]\s*)' + numeric, re.IGNORECASE)
         text, count = pattern.subn(lambda match: match[1] + quality[prefix + '_ph'] + match[2] + quality[prefix + '_temperature'], text)

@@ -138,3 +138,19 @@ test('daily pH and temperatures are included in autosave with blank and zero pre
     inlet_ph:'', inlet_temperature:'27.2', outlet_ph:'0', outlet_temperature:'26.8'
   });
 });
+
+
+test('legacy blank and negative quality drafts cannot replace HMI seed values', () => {
+  const source=fs.readFileSync(path.join(__dirname,'../local-web/static/app.js'),'utf8');
+  const edits=vm.runInContext(source.slice(0,source.indexOf('const state ='))+'qualityDraftEdits', vm.createContext({}));
+  assert.equal(JSON.stringify(edits({water_quality:{inlet_ph:'',inlet_temperature:'-4',outlet_ph:'',outlet_temperature:''}})), '{}');
+  assert.deepEqual(JSON.parse(JSON.stringify(edits({water_quality:{inlet_ph:'6.9',inlet_temperature:'-4'}}))), {inlet_ph:'6.9'});
+});
+
+test('explicit measurement edits preserve cleared values and ignore untouched saved snapshots', () => {
+  const source=fs.readFileSync(path.join(__dirname,'../local-web/static/app.js'),'utf8');
+  const edits=vm.runInContext(source.slice(0,source.indexOf('const state ='))+'qualityDraftEdits', vm.createContext({}));
+  assert.equal(JSON.stringify(edits({water_quality:{inlet_ph:'6.9'},quality_edits:{}})), '{}');
+  assert.deepEqual(JSON.parse(JSON.stringify(edits({quality_edits:{inlet_ph:'',outlet_ph:'0',inlet_temperature:'-4',outlet_temperature:'23.4'}}))),
+    {inlet_ph:'',outlet_ph:'0',outlet_temperature:'23.4'});
+});

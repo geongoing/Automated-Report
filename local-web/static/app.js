@@ -3,6 +3,25 @@ const inputCells = ['B32', 'G32', 'D37', 'E37', 'F37', 'F42'];
 const qualityCells = ['inlet_ph','inlet_temperature','outlet_ph','outlet_temperature'];
 const allManualCells = [...inputCells, ...qualityCells];
 const qualityInput = () => Object.fromEntries(qualityCells.map(id=>[id,$(id).value]));
+function qualityValueValid(key, value) {
+  if (typeof value!=='string' || !value.trim() || value.length>30 || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim())) return false;
+  const number=Number(value);
+  return Number.isFinite(number) && number>=0 && number<=(key.endsWith('_ph') ? 14 : 1000000);
+}
+function qualityDraftEdits(draft) {
+  const explicit = Object.hasOwn(draft,'quality_edits');
+  const entries = explicit ? draft.quality_edits : draft.water_quality;
+  if (!entries || typeof entries!=='object') return {};
+  return Object.fromEntries(Object.entries(entries).filter(([key,value])=>qualityCells.includes(key) &&
+    ((explicit && value==='') || qualityValueValid(key,value))));
+}
+function seedQuality() {
+  state.qualityEdits={};
+  const profile=state.hmiProfile;
+  for (const key of qualityCells) $(key).value=profile?.water_quality?.[key] || '';
+  $('quality-source').textContent=profile?.previous_name ? `전날 HMI (${profile.previous_date}) 기준 · 금일 측정값을 확인·수정하세요.` : '전날 HMI 측정값이 없습니다. 금일 측정값을 입력하세요.';
+}
+
 function hmiDateLabel(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
   const date = new Date(value + 'T00:00:00Z');
@@ -15,7 +34,7 @@ function refreshHmiDate(input) {
   input.parentElement.querySelector('.hmi-date-value').textContent = label || '날짜 선택';
   input.setAttribute('aria-description', label || '날짜 미입력');
 }
-const state = { targetDate: null, dutyManual: false, automatic: null, files: [], folder: null, reportFolders: null, hmiFolder: null, followingLatest: true, inspected: null, preview: null, revision: 0, fileRevision: 0, busy: false, scanning: false, savingSettings: false, stopped: false, tab: 'entry', hmiAvailable: false, hmiProfile: null, hmiLoading: false, hmiRevision: 0, hmiDirty: false, hmiEdits: {}, needHmiRefresh: false, draftDate: null, draftReady: false, draftLoading: false, draftScope: '', draftStamp: 0 };
+const state = { targetDate: null, dutyManual: false, automatic: null, files: [], folder: null, reportFolders: null, hmiFolder: null, followingLatest: true, inspected: null, preview: null, revision: 0, fileRevision: 0, busy: false, scanning: false, savingSettings: false, stopped: false, tab: 'entry', hmiAvailable: false, hmiProfile: null, hmiLoading: false, hmiRevision: 0, hmiDirty: false, hmiEdits: {}, qualityEdits: {}, needHmiRefresh: false, draftDate: null, draftReady: false, draftLoading: false, draftScope: '', draftStamp: 0 };
 const fmt = (value, digits = 3) => Number(value).toLocaleString('ko-KR', { maximumFractionDigits: digits });
 const settingsKey = data => JSON.stringify([data.raw_folder, data.final_folder, data.hmi_folder]);
 let errorTimer, draftTimer, draftSaving = null;
@@ -53,7 +72,7 @@ function queueDraft() {
     values:Object.fromEntries(inputCells.map(cell=>[cell,$(cell).value])),
     day_workers:Array.from(document.querySelectorAll('#day-worker-fields input')).map(input=>input.value),
     night_workers:Array.from(document.querySelectorAll('#night-worker-fields input')).map(input=>input.value),
-    water_quality:qualityInput(), hmi_fields:{...state.hmiEdits}, hmi_folder:state.hmiFolder || ''};
+    water_quality:qualityInput(), quality_edits:{...state.qualityEdits}, hmi_fields:{...state.hmiEdits}, hmi_folder:state.hmiFolder || ''};
   cacheDraft(draft);
   pendingDrafts.set(draft.record_date,draft);
   draftStatus('임시 저장 중…');
@@ -97,11 +116,14 @@ async function restoreDraft(date, revision) {
   catch { failed=true; }
   if (revision!==state.fileRevision) return;
   const draft=!remote || (local && local.updated_at>remote.updated_at) ? local : remote;
-  state.draftDate=date;
+  state.draftDate=date; seedQuality();
   if (!draft) { draftStatus(failed ? '임시 저장 확인 실패' : ''); return; }
   state.draftStamp=Math.max(state.draftStamp,draft.updated_at);
   for (const cell of inputCells) $(cell).value=draft.values[cell];
-  for (const cell of qualityCells) $(cell).value=draft.water_quality?.[cell] || '';
+  if (draft.hmi_folder===state.hmiFolder) {
+    state.qualityEdits=qualityDraftEdits(draft);
+    for (const [key,value] of Object.entries(state.qualityEdits)) $(key).value=value;
+  }
   document.querySelectorAll('#day-worker-fields input').forEach((input,i)=>input.value=draft.day_workers[i]);
   document.querySelectorAll('#night-worker-fields input').forEach((input,i)=>input.value=draft.night_workers[i]);
   if (draft.hmi_folder===state.hmiFolder) {
@@ -113,7 +135,7 @@ async function restoreDraft(date, revision) {
       element.value=value; refreshHmiDate(element); state.hmiEdits[cell]=value;
     }
   }
-  state.hmiDirty=Object.keys(state.hmiEdits).length>0;
+  state.hmiDirty=Object.keys(state.hmiEdits).length>0 || Object.keys(state.qualityEdits).length>0;
   cacheDraft(draft);
   if (!remote || draft.updated_at>remote.updated_at) {
     pendingDrafts.set(date,draft); clearTimeout(draftTimer); draftTimer=setTimeout(flushDrafts,0);
@@ -271,6 +293,7 @@ function clearInspect() {
   $('record-subtitle').textContent = '운영 기록 날짜를 확인해 주세요.';
   const tr = document.createElement('tr'), td = document.createElement('td'); td.colSpan = 3; td.className = 'empty-state'; td.textContent = '두 파일을 불러오면 이월값이 표시됩니다.'; tr.append(td); $('carry-body').replaceChildren(tr);
   $('water-hint').textContent = '전일지침을 불러오면 함께 표시합니다.'; $('F42').min = '0';
+  $('quality-source').textContent='';
   $('file-status').classList.remove('ok', 'missing-report'); invalidatePreview();
 }
 async function inspectFiles() {
@@ -378,7 +401,7 @@ $('duty-date').addEventListener('change', async () => {
   ++state.fileRevision; ++state.revision; clearInspect();
   for (const id of allManualCells) $(id).value = '';
   document.querySelectorAll('#day-worker-fields input,#night-worker-fields input').forEach(input=>input.value='');
-  state.hmiProfile=null; state.hmiEdits={}; state.hmiDirty=false;
+  state.hmiProfile=null; state.hmiEdits={}; state.qualityEdits={}; state.hmiDirty=false;
   document.querySelectorAll('#hmi-carry-body input,#hmi-carry-body select').forEach(input=>{input.value='';refreshHmiDate(input);});
   $('carry-note').textContent='당직일 자료 확인 중'; $('hmi-profile-info').textContent='';
   try { await loadFiles(true); await inspectFiles(); }
@@ -459,6 +482,10 @@ function hmiEdited(event) {
   if (event?.target) refreshHmiDate(event.target);
   state.hmiDirty = true; $('success').hidden = true;
   const cell=event?.target.id?.replace(/^hmi-/,'');
+  if (qualityCells.includes(cell)) {
+    if (event.target.value===(state.hmiProfile?.water_quality?.[cell] || '')) delete state.qualityEdits[cell];
+    else state.qualityEdits[cell]=event.target.value;
+  }
   if (hmiEditableCells.includes(cell)) {
     if (event.target.value===(state.hmiProfile?.fields[cell] || '')) delete state.hmiEdits[cell];
     else state.hmiEdits[cell]=event.target.value;
@@ -512,7 +539,7 @@ async function ensureHmiProfile(date, force=false) {
   try {
     const profile=await api('/api/hmi/profile',{record_date:date});
     if (rev!==state.hmiRevision) return;
-    state.hmiProfile=profile; state.hmiDirty=false;
+    state.hmiProfile=profile; state.hmiDirty=false; seedQuality();
     document.querySelectorAll('#day-worker-fields input').forEach((input,i)=>input.value=day[i]||'');
     document.querySelectorAll('#night-worker-fields input').forEach((input,i)=>input.value=night[i]||'');
     for (const cell of hmiEditableCells) {

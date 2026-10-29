@@ -7,7 +7,7 @@ import hashlib
 import re
 from pathlib import Path
 from app_settings import report_folder, final_folder, hmi_output_folder
-from hmi import editable_fields, hmi_record_date
+from hmi import editable_fields, hmi_record_date, extract_water_quality
 from report import Book, CARRY, MANUAL, ReportError
 from runtime import HMI_TEMPLATE
 
@@ -64,6 +64,7 @@ def previous_hmi(record_date):
 
 def hmi_profile(record_date):
     path, data = previous_hmi(record_date)
+    fields = editable_fields(data)
     message = "전날 HMI의 세정일자·가동상태·작업내용을 불러왔습니다. 필요한 항목만 수정하세요." if path else "전날 HMI가 없습니다. 처음 작성하는 항목을 직접 입력하거나 HMI 폴더 경로를 확인해 주세요."
     if data is not None:
         try:
@@ -74,7 +75,7 @@ def hmi_profile(record_date):
             "previous_date": (record_date - dt.timedelta(days=1)).isoformat(),
             "previous_name": path.name if path else None, "previous_path": str(path) if path else None,
             "seed_token": hashlib.sha256(data).hexdigest() if data is not None else "",
-            "fields": editable_fields(data),
+            "fields": fields, "water_quality": extract_water_quality(fields.get('H52')),
             "message": message}
 
 
