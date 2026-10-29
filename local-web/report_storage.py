@@ -43,7 +43,7 @@ class DuplicateReportError(ReportError):
 
 def destination_folders():
     folders = folder_config()
-    return {"report": configured_folder("final_folder", "완성일지", folders),
+    return {"report": configured_folder("final_folder", "과거 레포트", folders),
             "hmi": configured_folder("hmi_folder", "HMI 일지", folders)}
 
 

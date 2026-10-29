@@ -82,7 +82,7 @@ def hmi_source_input(record_date, data):
 
 def catalog():
     raw_folder, previous_folder = report_folder(), final_folder()
-    for folder, label in [(raw_folder, "당일 레포트"), (previous_folder, "완성일지")]:
+    for folder, label in [(raw_folder, "당일 레포트"), (previous_folder, "과거 레포트")]:
         if not folder.is_dir():
             raise ReportError(f"{label} 폴더를 찾을 수 없습니다. 폴더 설정에서 경로를 변경해 주세요.")
     same_folder = raw_folder.resolve() == previous_folder.resolve()
@@ -116,7 +116,7 @@ def auto_pair(files, raw_id=None):
     expected = (dt.date.fromisoformat(raw["record_date"]) - dt.timedelta(days=1)).isoformat()
     previous = next((f for f in files if f["kind"] == "final" and f["record_date"] == expected), None)
     return {"raw_id": raw["id"], "previous_id": previous["id"] if previous else None,
-            "message": "전날 최종 일지를 자동으로 연결했습니다." if previous else f"기록일 {expected}의 최종 일지를 찾지 못했습니다. 완성일지 폴더에 넣어 주세요."}
+            "message": "전날 최종 일지를 자동으로 연결했습니다." if previous else f"기록일 {expected}의 최종 일지를 찾지 못했습니다. 과거 레포트 폴더에 넣어 주세요."}
 
 
 def source(spec):

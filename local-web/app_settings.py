@@ -11,7 +11,7 @@ PICK_LOCK = threading.Lock()
 
 
 def open_output_folder(body):
-    choices = {"report": ("final_folder", "완성일지"), "hmi": ("hmi_folder", "HMI 일지")}
+    choices = {"report": ("final_folder", "과거 레포트"), "hmi": ("hmi_folder", "HMI 일지")}
     kind, expected = body.get("kind"), body.get("folder")
     if not isinstance(kind, str) or kind not in choices or not isinstance(expected, str):
         raise ReportError("열려는 저장 폴더를 확인해 주세요.")
@@ -52,7 +52,7 @@ def report_folder():
 
 
 def final_folder():
-    return configured_folder("final_folder", "완성일지")
+    return configured_folder("final_folder", "과거 레포트")
 
 
 def output_folder():
@@ -100,14 +100,14 @@ def validate_folder(folder, label):
 
 def save_settings(folder, previous_folder=None, previous_hmi_folder=None):
     config = {"raw_folder": validate_folder(folder, "당일 레포트 폴더"),
-              "final_folder": validate_folder(folder if previous_folder is None else previous_folder, "완성일지 폴더"),
+              "final_folder": validate_folder(folder if previous_folder is None else previous_folder, "과거 레포트 폴더"),
               "hmi_folder": validate_folder(previous_hmi_folder if previous_hmi_folder is not None else (folder if previous_folder is None else previous_folder), "HMI 일지 폴더")}
     write_backed_json(CONFIG, config, validate_settings)
     return settings()
 
 
 def select_folder(body):
-    labels = {"raw_folder": "당일 레포트", "final_folder": "완성일지", "hmi_folder": "HMI 일지"}
+    labels = {"raw_folder": "당일 레포트", "final_folder": "과거 레포트", "hmi_folder": "HMI 일지"}
     key = body.get("kind")
     if key not in labels or not isinstance(body.get("initial", ""), str):
         raise ReportError("선택할 폴더 항목을 확인해 주세요.")

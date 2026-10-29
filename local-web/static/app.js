@@ -222,7 +222,7 @@ function suggestPrevious(rawId) {
   const candidates = state.files.filter(f => f.kind === 'final' && f.record_date === expected);
   if (candidates[0]) $('previous-select').value = candidates[0].id;
   $('raw-hint').textContent = `운영 기록일 ${raw.record_date} · ${state.followingLatest ? '최신 당일 레포트 자동 선택' : '선택한 기록일의 레포트'}`;
-  $('previous-hint').textContent = candidates[0] ? `운영 기록일 ${expected} · 전날 최종 일지 자동 연결` : `기록일 ${expected}의 최종 일지를 완성일지 폴더에 넣어 주세요.`;
+  $('previous-hint').textContent = candidates[0] ? `운영 기록일 ${expected} · 전날 최종 일지 자동 연결` : `기록일 ${expected}의 최종 일지를 과거 레포트 폴더에 넣어 주세요.`;
 }
 function renderWarnings(warnings) {
   $('warnings').replaceChildren(); $('warnings').hidden = !warnings.length;
