@@ -1,5 +1,17 @@
 const $ = id => document.getElementById(id);
 const inputCells = ['B32', 'G32', 'D37', 'E37', 'F37', 'F42'];
+function hmiDateLabel(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+  const date = new Date(value + 'T00:00:00Z');
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return '';
+  return `${value}(${'일월화수목금토'[date.getUTCDay()]})`;
+}
+function refreshHmiDate(input) {
+  if (input.type !== 'date') return;
+  const label = hmiDateLabel(input.value);
+  input.parentElement.querySelector('.hmi-date-value').textContent = label || '날짜 선택';
+  input.setAttribute('aria-description', label || '날짜 미입력');
+}
 const state = { files: [], folder: null, reportFolders: null, hmiFolder: null, followingLatest: true, inspected: null, preview: null, revision: 0, fileRevision: 0, busy: false, scanning: false, savingSettings: false, stopped: false, tab: 'entry', hmiAvailable: false, hmiProfile: null, hmiLoading: false, hmiRevision: 0, hmiDirty: false, hmiEdits: {}, needHmiRefresh: false, draftDate: null, draftReady: false, draftLoading: false, draftScope: '', draftStamp: 0 };
 const fmt = (value, digits = 3) => Number(value).toLocaleString('ko-KR', { maximumFractionDigits: digits });
 const settingsKey = data => JSON.stringify([data.raw_folder, data.final_folder, data.hmi_folder]);
@@ -93,7 +105,7 @@ async function restoreDraft(date, revision) {
       if (!hmiEditableCells.includes(cell) || typeof value!=='string') continue;
       const element=$(`hmi-${cell}`);
       if (cell.endsWith('28') && !Array.from(element.options).some(option=>option.value===value)) element.add(new Option(value,value));
-      element.value=value; state.hmiEdits[cell]=value;
+      element.value=value; refreshHmiDate(element); state.hmiEdits[cell]=value;
     }
   }
   state.hmiDirty=Object.keys(state.hmiEdits).length>0;
@@ -410,6 +422,7 @@ function hmiInput() {
            day_workers: dayWorkers(), night_workers: nightWorkers(), fields };
 }
 function hmiEdited(event) {
+  if (event?.target) refreshHmiDate(event.target);
   state.hmiDirty = true; $('success').hidden = true;
   const cell=event?.target.id?.replace(/^hmi-/,'');
   if (hmiEditableCells.includes(cell)) {
@@ -436,7 +449,16 @@ function buildHmiEditor() {
     for (const [row,name] of [[32,'유지세정'],[33,'알칼리세정'],[34,'산세정']]) {
       const cell=document.createElement('td'), input=document.createElement('input');
       input.type='date'; input.id=`hmi-${c}${row}`; input.setAttribute('aria-label',`${i+1}번 분리막 ${name}일자`);
-      input.addEventListener('input',hmiEdited); cell.append(input); tr.append(cell);
+      const wrapper=document.createElement('div'), display=document.createElement('span');
+      wrapper.className='hmi-date-field'; display.className='hmi-date-value'; display.setAttribute('aria-hidden','true');
+      input.addEventListener('input',hmiEdited);
+      input.addEventListener('change',()=>refreshHmiDate(input));
+      input.addEventListener('click',()=>{
+        if (!input.disabled && typeof input.showPicker==='function') {
+          try { input.showPicker(); } catch { /* Native calendar indicator remains available. */ }
+        }
+      });
+      wrapper.append(input,display); cell.append(wrapper); tr.append(cell); refreshHmiDate(input);
     }
     $('hmi-carry-body').append(tr);
   }
@@ -461,7 +483,7 @@ async function ensureHmiProfile(date, force=false) {
     for (const cell of hmiEditableCells) {
       const element=$(`hmi-${cell}`), value=profile.fields[cell]||'';
       if (cell.endsWith('28') && !Array.from(element.options).some(o=>o.value===value)) element.add(new Option(value,value));
-      element.value=value;
+      element.value=value; refreshHmiDate(element);
     }
     $('carry-note').textContent = profile.previous_name ? '전날 내용 이어 받음' : '첫 작성 · 내용 확인';
     $('carry-note').classList.toggle('first-entry', !profile.previous_name);

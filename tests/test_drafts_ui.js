@@ -111,3 +111,16 @@ test('failed saves retain the latest draft for a later retry', async () => {
   await h.draft.flushDrafts();
   assert.equal(h.draft.pendingDrafts.size, 0);
 });
+
+
+test('HMI dates show Korean weekdays and preserve ISO values without timezone drift', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../local-web/static/app.js'), 'utf8');
+  const context = vm.createContext({});
+  const label = vm.runInContext(source.slice(0, source.indexOf('const state =')) + 'hmiDateLabel', context);
+  for (const [value, expected] of [['2026-10-25','일'],['2026-10-26','월'],['2026-10-27','화'],
+      ['2026-10-28','수'],['2026-10-29','목'],['2026-10-30','금'],['2026-10-31','토'],
+      ['2028-02-29','화'],['2027-01-01','금']]) {
+    assert.equal(label(value), `${value}(${expected})`);
+  }
+  for (const value of ['', '2026-02-29', '2026-10-32', 'bad', '2026-1-1']) assert.equal(label(value), '');
+});
