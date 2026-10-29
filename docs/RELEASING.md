@@ -11,8 +11,8 @@
 4. 변경을 커밋해 `main`에 올린 후 **같은 버전의 태그**를 게시합니다.
 
 ```sh
-git tag v2.4.1
-git push origin v2.4.1
+git tag v2.4.2
+git push origin v2.4.2
 ```
 
 태그는 예시입니다. 실제 버전 정보와 정확히 일치해야 합니다.

@@ -62,7 +62,7 @@ def existing_outputs(record_date, *, folders=None):
                 meta = file_metadata(str(path), stat.st_mtime_ns, stat.st_size)
                 matches = meta["kind"] == "final" and meta["record_date"] == record_date
             else:
-                matches = hmi_metadata(str(path), stat.st_mtime_ns, stat.st_size) == record_date
+                matches = hmi_metadata(str(path), stat.st_mtime_ns, stat.st_size, record_date) == record_date
             suffix = path.stem.removeprefix(stems[kind] + "_")
             expected_name = path.stem == stems[kind] or (path.stem.startswith(stems[kind] + "_") and suffix.isdigit())
             if matches or expected_name:

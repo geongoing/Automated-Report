@@ -31,10 +31,11 @@ def file_metadata(path, modified_ns, size):
 
 
 @lru_cache(maxsize=1024)
-def hmi_metadata(path, modified_ns, size):
+def hmi_metadata(path, modified_ns, size, expected_date=None):
     try:
         book = Book(Path(path).read_bytes(), Path(path).name, require_report=False)
-        return hmi_record_date(book).isoformat()
+        reference = dt.date.fromisoformat(expected_date) if expected_date is not None else None
+        return hmi_record_date(book, reference_date=reference).isoformat()
     except (ReportError, OSError, ValueError):
         return None
 
@@ -52,7 +53,7 @@ def previous_hmi(record_date):
             if path.name.startswith('~$'):
                 continue
             stat = path.stat()
-            if hmi_metadata(str(path), stat.st_mtime_ns, stat.st_size) == expected:
+            if hmi_metadata(str(path), stat.st_mtime_ns, stat.st_size, expected) == expected:
                 candidates.append((stat.st_mtime_ns, str(path), path))
     if not candidates:
         return None, None
@@ -62,12 +63,18 @@ def previous_hmi(record_date):
 
 def hmi_profile(record_date):
     path, data = previous_hmi(record_date)
+    message = "전날 HMI의 세정일자·가동상태·작업내용을 불러왔습니다. 필요한 항목만 수정하세요." if path else "전날 HMI가 없습니다. 처음 작성하는 항목을 직접 입력하거나 HMI 폴더 경로를 확인해 주세요."
+    if data is not None:
+        try:
+            hmi_record_date(Book(data, path.name, require_report=False))
+        except ReportError:
+            message += f" 연도 없는 제목의 월·일을 이월 대상일({record_date - dt.timedelta(days=1)})과 확인했습니다."
     return {"record_date": record_date.isoformat(),
             "previous_date": (record_date - dt.timedelta(days=1)).isoformat(),
             "previous_name": path.name if path else None, "previous_path": str(path) if path else None,
             "seed_token": hashlib.sha256(data).hexdigest() if data is not None else "",
             "fields": editable_fields(data),
-            "message": "전날 HMI의 세정일자·가동상태·작업내용을 불러왔습니다. 필요한 항목만 수정하세요." if path else "전날 HMI가 없습니다. 처음 작성하는 항목을 직접 입력하거나 HMI 폴더 경로를 확인해 주세요."}
+            "message": message}
 
 
 def hmi_source_input(record_date, data):

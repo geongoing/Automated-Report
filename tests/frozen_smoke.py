@@ -13,7 +13,11 @@ import time
 import urllib.error
 import urllib.request
 
-from fixtures import INPUTS,TODAY,make_report,pe_bytes
+from fixtures import INPUTS,TODAY,make_report,pe_bytes,replace_parts
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'local-web'))
+from report import Book, patch_cell
+from hmi import HMI_SHEET
 
 
 def main():
@@ -80,9 +84,20 @@ def main():
             pair=api('/api/files')['automatic']
             body={'raw':{'id':pair['raw_id']},'previous':{'id':pair['previous_id']},'inputs':INPUTS}
             preview=api('/api/preview',body);body['source_token']=preview['source_token']
+            template=(Path(__file__).resolve().parents[1]/'송도_HMI.xlsx').read_bytes()
+            template_book=Book(template,'template.xlsx',require_report=False)
+            sheet=template_book.sheets[HMI_SHEET]
+            legacy_xml=patch_cell(template_book.zip.read(sheet).decode(),'B8',(TODAY-dt.timedelta(days=1)).strftime('근무 일지(%m.%d)'))
+            legacy_xml=patch_cell(legacy_xml,'C28','정지')
+            legacy_path=hmi/'legacy-previous.xlsx'
+            legacy_data=replace_parts(template,{sheet:legacy_xml})
+            legacy_path.write_bytes(legacy_data)
             previous_hmi=api('/api/hmi/profile',{'record_date':TODAY.isoformat()})
+            assert previous_hmi['previous_name']==legacy_path.name and previous_hmi['fields']['C28']=='정지'
             body['hmi']={**previous_hmi,'day_workers':[],'night_workers':['test1','test2']}
             generated=api('/api/generate',body)
+            assert Book(Path(generated['outputs'][1]['path']).read_bytes(),'hmi.xlsx',require_report=False).cell('C28',HMI_SHEET)=='정지'
+            assert legacy_path.read_bytes()==legacy_data
             assert len(generated['outputs'])==2
             assert all(Path(item['folder']).samefile(Path(item['path']).parent) for item in generated['outputs'])
             assert api('/api/recovery')['items']==[]

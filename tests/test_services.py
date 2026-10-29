@@ -95,6 +95,52 @@ class ServiceTests(unittest.TestCase):
                 selected, _ = report_files.previous_hmi(date)
                 self.assertTrue(selected.samefile(previous_hmi))
 
+    def test_legacy_month_day_hmi_is_found_carried_and_detected_as_duplicate(self):
+        template = (ROOT / '송도_HMI.xlsx').read_bytes()
+        book = Book(template, 'template.xlsx', require_report=False)
+        sheet = book.sheets[HMI_SHEET]
+        for date in (dt.date(2026, 10, 28), dt.date(2027, 1, 1), dt.date(2028, 3, 1)):
+            with self.subTest(date=date):
+                yesterday = date - dt.timedelta(days=1)
+                xml = patch_cell(book.zip.read(sheet).decode(), 'B8', yesterday.strftime('송도지소 중앙 제어실 근무 일지(%m.%d)'))
+                xml = patch_cell(xml, 'C28', '정지')
+                xml = patch_cell(xml, 'C32', '2026-09-10')
+                path = self.hmi / f'legacy-{date}.xlsx'
+                data = replace_parts(template, {sheet: xml})
+                path.write_bytes(data)
+                profile = report_files.hmi_profile(date)
+                self.assertEqual(profile['previous_name'], path.name)
+                self.assertEqual(profile['fields']['C28'], '정지')
+                self.assertEqual(profile['fields']['C32'], '2026-09-10')
+                self.assertIn(str(yesterday), profile['message'])
+                _, _, values = generate_with_values(make_report(date), make_report(yesterday, True), 'raw.xlsx', 'prev.xlsx', INPUTS)
+                output, _ = render_hmi(values, template, previous_data=data, user_input={
+                    **profile, 'day_workers': [], 'night_workers': ['test1', 'test2'], 'fields': {}})
+                self.assertEqual(Book(output, 'output.xlsx', require_report=False).cell('C28', HMI_SHEET), '정지')
+                existing = storage.existing_outputs(yesterday.isoformat())
+                self.assertIn(path.name, [item['name'] for item in existing['outputs']])
+                self.assertNotIn(path.name, [item['name'] for item in storage.existing_outputs(date.isoformat())['outputs']])
+                self.assertEqual(path.read_bytes(), data)
+
+    def test_hmi_month_day_cache_uses_reference_date_and_full_year_is_authoritative(self):
+        from hmi import hmi_record_date
+        from report import ReportError
+        template = (ROOT / '송도_HMI.xlsx').read_bytes()
+        book = Book(template, 'template.xlsx', require_report=False)
+        sheet = book.sheets[HMI_SHEET]
+        xml = patch_cell(book.zip.read(sheet).decode(), 'B8', '근무 일지(10.27)')
+        data = replace_parts(template, {sheet: xml})
+        path = self.hmi / 'renamed.xlsx'; path.write_bytes(data)
+        stat = path.stat()
+        for date in ('2026-10-27', '2027-10-27', '2026-10-26'):
+            self.assertEqual(report_files.hmi_metadata(str(path), stat.st_mtime_ns, stat.st_size, date),
+                             date if date.endswith('10-27') else None)
+        with self.assertRaises(ReportError):
+            hmi_record_date(Book(data, 'short.xlsx', require_report=False))
+        xml = patch_cell(xml, 'B8', '근무 일지(2025.10.27)')
+        full = Book(replace_parts(template, {sheet: xml}), 'full.xlsx', require_report=False)
+        self.assertEqual(hmi_record_date(full, reference_date=dt.date(2026, 10, 27)), dt.date(2025, 10, 27))
+
     def test_concurrent_generation_and_rewrite_allow_only_one_pair_each(self):
         args = self.outputs()
         def save(token=None):

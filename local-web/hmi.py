@@ -59,14 +59,21 @@ EDITABLE_CELLS = STATUS_CELLS + DATE_CELLS + ["H52"]
 OTHER_CARRY_CELLS = [f"{c}26" for c in "CDEFGHIJ"] + [f"G{r}" for r in range(40, 46)]
 
 
-def hmi_record_date(book):
+def hmi_record_date(book, *, reference_date=None):
     if HMI_SHEET not in book.sheets:
         raise ReportError("송도 HMI 운영일지 시트가 없습니다.")
     title = str(book.cell("B8", HMI_SHEET) or "")
     m = re.search(r'근무\s*일지\s*\(\s*(20\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})\s*\)', title)
-    if not m:
-        raise ReportError("HMI 제목(B8)에서 기록일을 확인할 수 없습니다.")
-    return dt.date(*map(int, m.groups()))
+    if m:
+        return dt.date(*map(int, m.groups()))
+    short = re.search(r'근무\s*일지\s*\(\s*(\d{1,2})[.\-/](\d{1,2})\s*\)', title)
+    if short and reference_date is not None:
+        # Legacy titles omit the year. Accept only the precise date requested
+        # by the caller; never use today's year, mtime or a filename guess.
+        if tuple(map(int, short.groups())) == (reference_date.month, reference_date.day):
+            return reference_date
+        raise ReportError("HMI 제목의 월·일이 이월 대상 기록일과 다릅니다.")
+    raise ReportError("HMI 제목(B8)에서 기록일을 확인할 수 없습니다. 월·일만 있는 제목은 대상 기록일과 함께 확인해야 합니다.")
 
 
 def date_epoch(book):
@@ -192,7 +199,7 @@ def render_hmi(final, template_data, *, previous_data=None, user_input=None):
         fields.update(staff["fields"])
         if previous_data is not None:
             previous = Book(previous_data, "전날 HMI.xlsx", require_report=False)
-            if hmi_record_date(previous) != final.date - dt.timedelta(days=1):
+            if hmi_record_date(previous, reference_date=final.date - dt.timedelta(days=1)) != final.date - dt.timedelta(days=1):
                 raise ReportError("HMI 이월 원본은 정확히 하루 전 기록일이어야 합니다.")
             for cell in OTHER_CARRY_CELLS:
                 xml = patch_cell(xml, cell, previous.cell(cell, HMI_SHEET))
