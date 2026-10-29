@@ -13,7 +13,7 @@ import drafts
 import report_files
 import report_storage as storage
 import transactions
-from report import Book, generate_with_values, patch_cell
+from report import Book, ReportError, generate_with_values, patch_cell
 from hmi import HMI_SHEET, render_hmi
 from fixtures import TODAY, INPUTS, make_report, replace_parts
 
@@ -140,6 +140,21 @@ class ServiceTests(unittest.TestCase):
         xml = patch_cell(xml, 'B8', '근무 일지(2025.10.27)')
         full = Book(replace_parts(template, {sheet: xml}), 'full.xlsx', require_report=False)
         self.assertEqual(hmi_record_date(full, reference_date=dt.date(2026, 10, 27)), dt.date(2025, 10, 27))
+
+    def test_duty_pair_requires_requested_day_and_next_day_filename(self):
+        files = report_files.catalog()
+        self.assertEqual(report_files.duty_pair(files, TODAY.isoformat())['raw_id'], 'raw/20261027.xlsx')
+        missing = report_files.duty_pair(files, '2026-10-28')
+        self.assertIsNone(missing['raw_id'])
+        self.assertIn('20261029.xlsx', missing['message'])
+        wrong_name = [{**file, 'name': '20261028.xlsx'} if file['kind'] == 'raw' else file for file in files]
+        self.assertIsNone(report_files.duty_pair(wrong_name, TODAY.isoformat())['raw_id'])
+        with self.assertRaisesRegex(ReportError, '당직일'):
+            report_files.validate_duty_source(self.raw_data, '20261027.xlsx', '2026-10-28')
+        report_files.validate_duty_source(self.raw_data, '20261027원본(미가공).xlsx', TODAY.isoformat())
+        report_files.validate_duty_source(self.raw_data, 'renamed.xlsx', TODAY.isoformat())
+        for date, expected in (('2026-12-31', '20270101.xlsx'), ('2028-02-29', '20280301.xlsx')):
+            self.assertEqual(report_files.duty_context(date)['expected_raw_name'], expected)
 
     def test_concurrent_generation_and_rewrite_allow_only_one_pair_each(self):
         args = self.outputs()

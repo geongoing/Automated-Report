@@ -12,7 +12,7 @@ function refreshHmiDate(input) {
   input.parentElement.querySelector('.hmi-date-value').textContent = label || '날짜 선택';
   input.setAttribute('aria-description', label || '날짜 미입력');
 }
-const state = { files: [], folder: null, reportFolders: null, hmiFolder: null, followingLatest: true, inspected: null, preview: null, revision: 0, fileRevision: 0, busy: false, scanning: false, savingSettings: false, stopped: false, tab: 'entry', hmiAvailable: false, hmiProfile: null, hmiLoading: false, hmiRevision: 0, hmiDirty: false, hmiEdits: {}, needHmiRefresh: false, draftDate: null, draftReady: false, draftLoading: false, draftScope: '', draftStamp: 0 };
+const state = { targetDate: null, dutyManual: false, automatic: null, files: [], folder: null, reportFolders: null, hmiFolder: null, followingLatest: true, inspected: null, preview: null, revision: 0, fileRevision: 0, busy: false, scanning: false, savingSettings: false, stopped: false, tab: 'entry', hmiAvailable: false, hmiProfile: null, hmiLoading: false, hmiRevision: 0, hmiDirty: false, hmiEdits: {}, needHmiRefresh: false, draftDate: null, draftReady: false, draftLoading: false, draftScope: '', draftStamp: 0 };
 const fmt = (value, digits = 3) => Number(value).toLocaleString('ko-KR', { maximumFractionDigits: digits });
 const settingsKey = data => JSON.stringify([data.raw_folder, data.final_folder, data.hmi_folder]);
 let errorTimer, draftTimer, draftSaving = null;
@@ -126,7 +126,7 @@ function updateButtons() {
     return;
   }
   const locked = state.busy || state.scanning || state.hmiLoading || state.savingSettings || state.pickingFolder || state.draftLoading;
-  for (const id of ['server-stop', 'refresh', 'raw-select', 'folder-save', 'hmi-profile-reload']) $(id).disabled = locked;
+  for (const id of ['server-stop', 'refresh', 'raw-select', 'folder-save', 'hmi-profile-reload', 'duty-date']) $(id).disabled = locked;
   for (const id of ['entry-tab', 'settings-tab', 'back-to-entry', 'source-settings']) $(id).disabled = state.busy || state.savingSettings || state.pickingFolder;
   document.querySelectorAll('.folder-browse,#folder-form input').forEach(control=>control.disabled=Boolean(state.busy || state.savingSettings || state.pickingFolder));
   $('entry-tab').disabled ||= !state.configured;
@@ -147,7 +147,7 @@ function invalidatePreview() {
 }
 function spec(kind) { return { id: $(`${kind}-select`).value }; }
 function payload(withInputs = false) {
-  const data = { raw: spec('raw'), previous: spec('previous') };
+  const data = { record_date: state.targetDate, raw: spec('raw'), previous: spec('previous') };
   if (withInputs) data.inputs = Object.fromEntries(inputCells.map(id => [id, $(id).value]));
   return data;
 }
@@ -163,26 +163,30 @@ async function loadFiles(initial = false, background = false) {
   try {
   const old = { raw: $('raw-select').value, previous: $('previous-select').value };
   const oldSignature = JSON.stringify(state.files.filter(f => f.id === old.raw || f.id === old.previous));
-  const data = await api('/api/files');
+  const data = await api('/api/files' + (state.dutyManual && state.targetDate ? '?date='+encodeURIComponent(state.targetDate) : ''));
   if (background && (state.busy || state.hmiDirty || dayWorkers().length || nightWorkers().some(Boolean) || inputCells.some(id => $(id).value !== ''))) return false;
   const folderChanged = state.folder !== settingsKey(data);
   const reportFolderChanged = state.reportFolders !== JSON.stringify([data.raw_folder, data.final_folder]);
+  const dutyChanged = state.targetDate !== data.duty.record_date;
+  state.targetDate = data.duty.record_date; state.automatic = data.automatic;
+  $('duty-date').value = state.targetDate; refreshHmiDate($('duty-date'));
+  $('duty-report-hint').textContent = `당직일 ${state.targetDate} · 필요한 당일 레포트 ${data.duty.expected_raw_name} (${data.duty.report_file_date} 저장)`;
   showSettings(data); state.files = data.files;
   for (const kind of ['raw', 'previous']) {
     const select = $(`${kind}-select`); select.replaceChildren(new Option(kind === 'raw' ? '당일 레포트 없음' : '전날 최종 일지 없음', ''));
     for (const file of data.files) {
-      if (kind === 'raw' && file.kind !== 'raw') continue;
+      if (kind === 'raw' && (file.kind !== 'raw' || !data.automatic.raw_ids.includes(file.id))) continue;
       if (kind === 'previous' && file.kind !== 'final') continue;
       select.add(new Option(`${file.record_date} 기록 · ${file.relative_path}`, file.id));
     }
     if (Array.from(select.options).some(x => x.value === old[kind])) select.value = old[kind];
   }
-  if (initial || folderChanged || !$('raw-select').value) {
+  if (initial || folderChanged || dutyChanged || !$('raw-select').value) {
     $('raw-select').value = data.automatic.raw_id || '';
   }
   suggestPrevious($('raw-select').value);
-  const changed = folderChanged || old.raw !== $('raw-select').value || old.previous !== $('previous-select').value || oldSignature !== JSON.stringify(state.files.filter(f => f.id === $('raw-select').value || f.id === $('previous-select').value));
-  if (reportFolderChanged || old.raw !== $('raw-select').value) { for (const id of inputCells) $(id).value = ''; }
+  const changed = folderChanged || dutyChanged || old.raw !== $('raw-select').value || old.previous !== $('previous-select').value || oldSignature !== JSON.stringify(state.files.filter(f => f.id === $('raw-select').value || f.id === $('previous-select').value));
+  if (reportFolderChanged || dutyChanged || old.raw !== $('raw-select').value) { for (const id of inputCells) $(id).value = ''; }
   if (changed) { ++state.fileRevision; ++state.revision; clearInspect(); }
   updateButtons();
   return changed;
@@ -228,12 +232,12 @@ $('update-check').addEventListener('click',async()=>{
 function suggestPrevious(rawId) {
   $('previous-select').value = '';
   const raw = state.files.find(f => f.id === rawId);
-  if (!raw) { $('raw-hint').textContent = '당일 레포트 폴더에 파일을 넣어 주세요.'; $('previous-hint').textContent = '당일 레포트를 찾으면 전날 최종 일지를 연결합니다.'; return; }
+  if (!raw) { $('raw-hint').textContent = state.automatic?.message || '당일 레포트 폴더에 파일을 넣어 주세요.'; $('previous-hint').textContent = '당일 레포트를 찾으면 전날 최종 일지를 연결합니다.'; return; }
   const date = new Date(raw.record_date + 'T00:00:00Z');
   date.setUTCDate(date.getUTCDate()-1); const expected = date.toISOString().slice(0,10);
   const candidates = state.files.filter(f => f.kind === 'final' && f.record_date === expected);
   if (candidates[0]) $('previous-select').value = candidates[0].id;
-  $('raw-hint').textContent = `운영 기록일 ${raw.record_date} · ${state.followingLatest ? '최신 당일 레포트 자동 선택' : '선택한 기록일의 레포트'}`;
+  $('raw-hint').textContent = `당직일 ${raw.record_date} · ${raw.name}`;
   $('previous-hint').textContent = candidates[0] ? `운영 기록일 ${expected} · 전날 최종 일지 자동 연결` : `기록일 ${expected}의 최종 일지를 과거 레포트 폴더에 넣어 주세요.`;
 }
 function renderWarnings(warnings) {
@@ -242,7 +246,6 @@ function renderWarnings(warnings) {
 }
 function renderInspect(data) {
   state.existing=data.existing || null;
-  $('record-date').textContent = data.record_date.replaceAll('-', '. ');
   $('record-subtitle').textContent = '운영 기록일 · ' + data.output_name;
   $('carry-body').replaceChildren();
   for (const row of data.carry) {
@@ -260,10 +263,10 @@ function clearInspect() {
   state.existing=null;
   state.inspected = null;
   state.draftReady = false;
-  $('record-date').textContent = '자료 확인 중'; $('record-subtitle').textContent = '운영 기록 날짜를 확인해 주세요.';
+  $('record-subtitle').textContent = '운영 기록 날짜를 확인해 주세요.';
   const tr = document.createElement('tr'), td = document.createElement('td'); td.colSpan = 3; td.className = 'empty-state'; td.textContent = '두 파일을 불러오면 이월값이 표시됩니다.'; tr.append(td); $('carry-body').replaceChildren(tr);
   $('water-hint').textContent = '전일지침을 불러오면 함께 표시합니다.'; $('F42').min = '0';
-  $('file-status').classList.remove('ok'); invalidatePreview();
+  $('file-status').classList.remove('ok', 'missing-report'); invalidatePreview();
 }
 async function inspectFiles() {
   const rev = ++state.fileRevision; ++state.revision; state.draftLoading=true; clearInspect(); draftStatus('');
@@ -276,7 +279,8 @@ async function inspectFiles() {
     }
     if (!spec('raw').id || !spec('previous').id) {
       state.draftDate=null; draftStatus('');
-      $('file-status').textContent = !spec('raw').id ? '당일 레포트 폴더에서 파일을 찾지 못했습니다.' : $('previous-hint').textContent; return;
+      $('file-status').textContent = !spec('raw').id ? state.automatic?.message || '당일 레포트 폴더에서 파일을 찾지 못했습니다.' : $('previous-hint').textContent;
+      $('file-status').classList.add('missing-report'); return;
     }
     $('file-status').textContent = '파일의 날짜와 전날 수치를 확인하고 있습니다…';
     const data = await api('/api/inspect', payload()); if (rev !== state.fileRevision) return;
@@ -355,6 +359,31 @@ for (const button of document.querySelectorAll('.folder-browse')) button.addEven
     else $('folder-message').textContent='';
   } catch (e) { $('folder-message').textContent=e.message; showError(e.message); }
   finally { state.pickingFolder=false; updateButtons(); button.focus(); }
+});
+$('duty-date').addEventListener('change', async () => {
+  const date = $('duty-date').value;
+  refreshHmiDate($('duty-date'));
+  if (state.busy || state.scanning) return;
+  if (!date) {
+    state.targetDate=null; state.dutyManual=true; ++state.fileRevision; ++state.revision; clearInspect();
+    $('file-status').textContent='작성할 당직일을 선택해 주세요.'; return;
+  }
+  queueDraft(); state.draftLoading=true; updateButtons(); await flushDrafts();
+  state.targetDate = date; state.dutyManual = true; state.followingLatest = true;
+  ++state.fileRevision; ++state.revision; clearInspect();
+  for (const id of inputCells) $(id).value = '';
+  document.querySelectorAll('#day-worker-fields input,#night-worker-fields input').forEach(input=>input.value='');
+  state.hmiProfile=null; state.hmiEdits={}; state.hmiDirty=false;
+  document.querySelectorAll('#hmi-carry-body input,#hmi-carry-body select').forEach(input=>{input.value='';refreshHmiDate(input);});
+  $('carry-note').textContent='당직일 자료 확인 중'; $('hmi-profile-info').textContent='';
+  try { await loadFiles(true); await inspectFiles(); }
+  catch (e) { $('file-status').textContent=e.message; showError(e.message); }
+  finally { state.draftLoading=false; updateButtons(); }
+});
+$('duty-date').addEventListener('click',()=>{
+  if (!$('duty-date').disabled && typeof $('duty-date').showPicker==='function') {
+    try { $('duty-date').showPicker(); } catch { /* Keep the native date control available. */ }
+  }
 });
 $('raw-select').addEventListener('change', async () => {
   state.followingLatest = false;

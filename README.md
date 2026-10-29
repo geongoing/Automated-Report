@@ -1,7 +1,7 @@
 # Automated Report
 
 송도지소의 당일 레포트와 전날 최종 일지를 연결해 **최종 일지와 송도 HMI를 함께 생성**하는 Windows용 로컬 웹 프로그램입니다.
-현재 버전은 **v2.4.3**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
+현재 버전은 **v2.5.0**입니다. 사용자 안내는 [사용방법.md](사용방법.md), 개발 인수인계는 [CLOUD_HANDOFF.md](CLOUD_HANDOFF.md)를 참고하세요.
 
 배포본은 [최신 정식 버전](https://github.com/geongoing/Automated-Report/releases/latest)에서 받습니다.
 `SongdoDaily-v버전.zip`에는 `일지작성.exe` 하나가 들어 있습니다. 이후 EXE 실행 시 새 정식 버전을 자동 확인합니다.

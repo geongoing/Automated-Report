@@ -126,3 +126,25 @@ class RecoveryInterfaceTests(unittest.TestCase):
             opened.side_effect = OSError('offline')
             with self.assertRaisesRegex(ReportError, '폴더를 열지 못했습니다'):
                 app_settings.open_output_folder({'kind': 'report', 'folder': str(self.report.parent)})
+
+    def test_duty_date_listing_and_server_generation_guard(self):
+        raw = self.base / 'raw'; raw.mkdir()
+        (raw / '20261027.xlsx').write_bytes(make_report(TODAY))
+        (self.report.parent / '20261026.xlsx').write_bytes(make_report(TODAY - dt.timedelta(days=1), True))
+        config = {'raw_folder': raw, 'final_folder': self.report.parent, 'hmi_folder': self.hmi.parent}
+        with patch.object(app_settings, 'folder_config', return_value=config):
+            default = self.api('/api/files')
+            self.assertEqual(default['duty']['record_date'], (dt.date.today() - dt.timedelta(days=1)).isoformat())
+            missing = self.api('/api/files?date=2026-10-28')
+            self.assertIsNone(missing['automatic']['raw_id'])
+            self.assertIn('20261029.xlsx', missing['automatic']['message'])
+            correct = self.api('/api/files?date=' + TODAY.isoformat())
+            self.assertEqual(correct['automatic']['raw_id'], 'raw/20261027.xlsx')
+            for endpoint in ('/api/inspect', '/api/preview', '/api/generate'):
+                with self.assertRaises(urllib.error.HTTPError) as failure:
+                    self.api(endpoint, {'record_date': '2026-10-28', 'raw': {'id': 'raw/20261027.xlsx'},
+                        'previous': {'id': 'final/20261026.xlsx'}})
+                self.assertEqual(failure.exception.code, 400)
+                self.assertIn('당직일', json.loads(failure.exception.read())['error'])
+                failure.exception.close()
+            self.assertFalse(self.hmi.exists())

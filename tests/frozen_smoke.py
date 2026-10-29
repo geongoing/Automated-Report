@@ -81,8 +81,10 @@ def main():
             (raw/'20261027.xlsx').write_bytes(make_report(TODAY))
             (final/'20261026.xlsx').write_bytes(make_report(TODAY-dt.timedelta(days=1),True))
             api('/api/settings',{'raw_folder':str(raw),'final_folder':str(final),'hmi_folder':str(hmi)})
-            pair=api('/api/files')['automatic']
-            body={'raw':{'id':pair['raw_id']},'previous':{'id':pair['previous_id']},'inputs':INPUTS}
+            pair=api('/api/files?date='+TODAY.isoformat())['automatic']
+            missing=api('/api/files?date=2026-10-28')['automatic']
+            assert missing['raw_id'] is None and '20261029.xlsx' in missing['message']
+            body={'record_date':TODAY.isoformat(),'raw':{'id':pair['raw_id']},'previous':{'id':pair['previous_id']},'inputs':INPUTS}
             preview=api('/api/preview',body);body['source_token']=preview['source_token']
             template=(Path(__file__).resolve().parents[1]/'송도_HMI.xlsx').read_bytes()
             template_book=Book(template,'template.xlsx',require_report=False)

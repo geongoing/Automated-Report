@@ -14,7 +14,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from app_settings import settings, save_settings, select_folder, output_folder, hmi_output_folder, open_output_folder
 from drafts import get_draft, save_draft
-from report_files import catalog, auto_pair, source, hmi_template, hmi_profile, hmi_source_input
+from report_files import catalog, source, hmi_template, hmi_profile, hmi_source_input, duty_context, duty_pair, validate_duty_source
 from report_storage import DuplicateReportError, existing_outputs, output_info, save_report_pair, recover_pending, recovery_status
 from report import ReportError, generate_with_values, prepare
 from hmi import render_hmi
@@ -92,10 +92,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(400, {"error": str(e)})
         if path == "/api/files":
             try:
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                default_date = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+                duty = duty_context(query.get("date", [default_date])[0])
                 config = settings()
                 files = catalog() if config["configured"] else []
-                automatic = auto_pair(files) if config["configured"] else {"raw_id": None, "previous_id": None, "message": config["configuration_message"]}
-                return self.reply(200, {"files": files, "automatic": automatic, **config})
+                automatic = duty_pair(files, duty["record_date"]) if config["configured"] else {"raw_id": None, "previous_id": None, "raw_ids": [], "message": config["configuration_message"]}
+                return self.reply(200, {"files": files, "automatic": automatic, "duty": duty, "default_duty_date": default_date, **config})
             except (ReportError, OSError) as e:
                 return self.reply(400, {"error": str(e)})
         if path.startswith("/download/"):
@@ -197,6 +200,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/hmi/profile":
                 return self.reply(200, hmi_profile(dt.date.fromisoformat(body.get("record_date", ""))))
             raw_data, raw_name = source(body.get("raw"))
+            validate_duty_source(raw_data, raw_name, body.get("record_date"))
             previous_data, previous_name = source(body.get("previous"))
             if self.path == "/api/inspect":
                 summary, _, _ = prepare(raw_data, previous_data, raw_name, previous_name)

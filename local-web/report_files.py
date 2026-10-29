@@ -4,6 +4,7 @@ import binascii
 import datetime as dt
 from functools import lru_cache
 import hashlib
+import re
 from pathlib import Path
 from app_settings import report_folder, final_folder, hmi_output_folder
 from hmi import editable_fields, hmi_record_date
@@ -124,6 +125,43 @@ def auto_pair(files, raw_id=None):
     previous = next((f for f in files if f["kind"] == "final" and f["record_date"] == expected), None)
     return {"raw_id": raw["id"], "previous_id": previous["id"] if previous else None,
             "message": "전날 최종 일지를 자동으로 연결했습니다." if previous else f"기록일 {expected}의 최종 일지를 찾지 못했습니다. 과거 레포트 폴더에 넣어 주세요."}
+
+
+def duty_context(record_date):
+    try:
+        date = dt.date.fromisoformat(record_date)
+        if date.isoformat() != record_date:
+            raise ValueError
+        file_date = date + dt.timedelta(days=1)
+    except (TypeError, ValueError, OverflowError):
+        raise ReportError("작성할 당직일을 YYYY-MM-DD 형식으로 선택해 주세요.") from None
+    return {"record_date": date.isoformat(), "report_file_date": file_date.isoformat(),
+            "expected_raw_name": file_date.strftime("%Y%m%d.xlsx")}
+
+
+def raw_matches_duty(file, context):
+    if file["kind"] != "raw" or file["record_date"] != context["record_date"]:
+        return False
+    prefix = re.match(r"^(20\d{6})(?!\d)", file["name"])
+    return not prefix or prefix[1] == context["expected_raw_name"][:8]
+
+
+def duty_pair(files, record_date):
+    context = duty_context(record_date)
+    candidates = [file for file in files if raw_matches_duty(file, context)]
+    context["raw_ids"] = [file["id"] for file in candidates]
+    raw = next(iter(candidates), None)
+    if not raw:
+        return {**context, "raw_id": None, "previous_id": None,
+                "message": f'{record_date} 당직일의 당일 레포트가 없습니다. {context["expected_raw_name"]} 파일(내부 기록일 {record_date})을 확인해 주세요.'}
+    return {**auto_pair(files, raw["id"]), **context}
+
+
+def validate_duty_source(data, name, record_date):
+    context = duty_context(record_date)
+    book = Book(data, name)
+    if not raw_matches_duty({"kind": "raw", "record_date": book.date.isoformat(), "name": name}, context):
+        raise ReportError(f'선택한 레포트의 날짜가 작성할 당직일 {record_date}과 다릅니다. {context["expected_raw_name"]} 파일과 내부 기록일을 확인해 주세요.')
 
 
 def source(spec):

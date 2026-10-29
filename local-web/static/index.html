@@ -17,7 +17,8 @@
   </header>
   <main>
     <section id="entry-page" role="tabpanel" aria-labelledby="entry-tab">
-      <div class="record-heading"><span id="draft-status" class="draft-status" role="status" aria-live="polite"></span><span class="record-label">운영 기록일 <strong id="record-date">확인 중</strong></span></div>
+      <div class="record-heading"><span id="draft-status" class="draft-status" role="status" aria-live="polite"></span><label class="record-label" for="duty-date">작성 당직일</label><div class="hmi-date-field duty-date-field"><input id="duty-date" type="date" required aria-label="작성 당직일"><span class="hmi-date-value" aria-hidden="true">확인 중</span></div></div>
+      <p id="duty-report-hint" class="help duty-report-hint"></p>
       <div class="entry-card">
         <div class="source-line"><p id="file-status" role="status">당일 레포트와 전날 자료를 불러오고 있습니다.</p><button class="text-button" id="source-settings" type="button">불러온 자료 확인 <span aria-hidden="true">↗</span></button></div>
         <form id="report-form" novalidate>
